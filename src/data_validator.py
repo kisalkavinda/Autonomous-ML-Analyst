@@ -72,4 +72,29 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     if cols_to_drop_cardinality:
         df = df.drop(columns=cols_to_drop_cardinality)
 
+    # 6. Check High-Cardinality Numeric Columns (Numeric IDs like PassengerId)
+    # Re-fetch numeric columns
+    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+    cols_to_drop_numeric_id = []
+
+    for col in numeric_cols:
+        if col == target_col:
+            continue
+        
+        # If a numeric column is exactly 100% unique, it is almost certainly an ID or Index
+        if df[col].nunique() == len(df):
+            cols_to_drop_numeric_id.append(col)
+            state.dropped_columns.append({
+                "col": col, 
+                "reason": "Numeric identifier dropped (100% unique)"
+            })
+            
+    if cols_to_drop_numeric_id:
+        df = df.drop(columns=cols_to_drop_numeric_id)
+
+    # 7. Check if any features remain
+    if len(df.columns) <= 1:
+        # Only target column remains
+        raise InsufficientDataError("All features were dropped due to data quality issues (high cardinality, nulls, etc.). No data left to train on.")
+
     return df
