@@ -1,6 +1,12 @@
 import pytest
 import pandas as pd
 import numpy as np
+import sys
+import os
+
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from src.config import AnalysisConfig
 from src.state import AnalysisState
 from src.exceptions import InsufficientDataError, TargetConstantError, ExcessiveMissingDataError
@@ -70,3 +76,6 @@ def test_drop_cols_and_state_mutation(config, state):
     assert 'high_card' in dropped_reasons
     # The reason string contains the ratio, checking for partial match
     assert "High cardinality" in dropped_reasons['high_card']
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__]))
