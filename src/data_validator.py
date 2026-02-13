@@ -170,6 +170,38 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     if cols_to_drop_numeric_id:
         df = df.drop(columns=cols_to_drop_numeric_id)
 
+    # ---------------------------------------------------------
+    # NEW: Phase 9 - Leakage Detection
+    # ---------------------------------------------------------
+    # Check for features that are simply the target in disguise.
+    # We calculate the correlation of all numeric features against the target.
+    # If correlation is > config.max_correlation (e.g., 0.95), we drop it.
+    
+    # Only if target is numeric
+    if pd.api.types.is_numeric_dtype(df[target_col]):
+        numeric_features = df.select_dtypes(include=['number']).columns
+        cols_to_drop_leakage = []
+        
+        for col in numeric_features:
+            if col == target_col:
+                continue
+                
+            # Calculate absolute correlation
+            corr = df[col].corr(df[target_col])
+            
+            if abs(corr) > config.max_correlation:
+                cols_to_drop_leakage.append(col)
+                state.dropped_columns.append({
+                    "col": col, 
+                    "reason": f"Possible Leakage: Correlation {corr:.4f} > {config.max_correlation}"
+                })
+                state.warnings.append(
+                    f"⚠️ DROPPED '{col}' due to possible data leakage (Correlation: {corr:.4f})."
+                )
+        
+        if cols_to_drop_leakage:
+            df = df.drop(columns=cols_to_drop_leakage)
+
     # 7. Check if any features remain
     if len(df.columns) <= 1:
         # Only target column remains
