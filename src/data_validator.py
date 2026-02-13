@@ -6,6 +6,14 @@ from src.state import AnalysisState
 from src.exceptions import InsufficientDataError, TargetConstantError, ExcessiveMissingDataError
 
 
+LEAKAGE_MAPPING = {
+    'revenue': ['profit', 'cost', 'margin', 'tax', 'total'],
+    'sales': ['profit', 'cost', 'margin', 'revenue'],
+    'profit': ['revenue', 'sales', 'cost', 'tax'],
+    'price': ['cost', 'discount'], 
+    'total': ['subtotal', 'tax']
+}
+
 def suggest_target_column(df: pd.DataFrame) -> Optional[str]:
     """
     Intelligently identifies the most likely target column using a 3-tier strategy.
@@ -150,6 +158,48 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     if cols_to_drop_cardinality:
         df = df.drop(columns=cols_to_drop_cardinality)
 
+    # ---------------------------------------------------------
+    # NEW: Phase 5.5 - Semantic Leakage Detection
+    # ---------------------------------------------------------
+    # Check for features that are contextually "too close" to the target.
+    # e.g., If target is 'Revenue', we shouldn't train on 'Profit' or 'Cost'.
+    # This must run BEFORE ID checks because typical financial columns might be 100% unique floats.
+    
+    target_lower = target_col.lower()
+    
+    # scan for exact target match in the mapping keys
+    suspicious_terms = []
+    for key, terms in LEAKAGE_MAPPING.items():
+        if key in target_lower:
+            suspicious_terms.extend(terms)
+            
+    if suspicious_terms:
+        # We have a relevant leakage context (e.g. target is 'revenue')
+        cols_to_drop_semantic = []
+        
+        for col in df.columns:
+            if col == target_col:
+                continue
+                
+            col_lower = col.lower()
+            
+            # Substring matching: Check if any prohibited term exists in the column name
+            # e.g. "profit" in "Gross_Profit" -> True
+            for term in suspicious_terms:
+                if term in col_lower:
+                    cols_to_drop_semantic.append(col)
+                    state.dropped_columns.append({
+                        "col": col,
+                        "reason": f"Semantic Leakage (Suspicious Feature Name: '{term}')"
+                    })
+                    state.warnings.append(
+                        f"🧠 Semantic Drop: '{col}' removed due to suspicious context (Term: '{term}')."
+                    )
+                    break # Stop checking other terms for this column
+        
+        if cols_to_drop_semantic:
+            df = df.drop(columns=cols_to_drop_semantic)
+            
     # 6. Check High-Cardinality Numeric Columns (Numeric IDs like PassengerId)
     # Re-fetch numeric columns
     numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
@@ -170,7 +220,7 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     if cols_to_drop_numeric_id:
         df = df.drop(columns=cols_to_drop_numeric_id)
 
-    # ---------------------------------------------------------
+
     # NEW: Phase 9 - Leakage Detection
     # ---------------------------------------------------------
     # Check for features that are simply the target in disguise.

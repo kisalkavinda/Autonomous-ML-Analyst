@@ -19,30 +19,31 @@ def test_full_dirty_pipeline():
     # Create dataset based on the user's description (best_selling_video_games.csv autoclave)
     # We need enough samples for the pipeline to run (default min 30)
     
-    # 50 rows of valid numeric data (as strings to mimic 'object' dtype initially)
-    good_data = {
-        'Rank': range(50),
-        'other_feat': [float(i) for i in range(50)],
-        'Sales(millions)': [str(float(i)) for i in range(50)]
+    # Create dataset for Semantic Leakage Verification
+    # Target: Revenue
+    # Leakers: Cost, Profit, Gross_Profit (substring match)
+    
+    n = 100
+    cost = np.random.uniform(50, 150, n)
+    profit = cost * 0.1 + np.random.normal(0, 5, n) # Moderate correlation
+    revenue = cost + profit # Perfect linear combination
+    
+    data = {
+        'Cost': cost,
+        'Profit': profit,
+        'Gross_Profit': profit, # Substring match test
+        'City': ['New York', 'London', 'Paris', 'Tokyo', 'Berlin'] * 20, # Harmless feature
+        'Revenue': revenue
     }
     
-    # 5 rows of "corrupted" text data in target
-    bad_data = {
-        'Rank': ['The Sims'] * 5,
-        'other_feat': [100.0] * 5,
-        'Sales(millions)': ['Cyberpunk'] * 5 # The Dirty Target
-    }
+    df = pd.DataFrame(data)
     
-    df_good = pd.DataFrame(good_data)
-    df_bad = pd.DataFrame(bad_data)
-    
-    df = pd.concat([df_good, df_bad], ignore_index=True)
     # Shuffle
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
     
-    target_col = 'Sales(millions)'
-    print(f"Original Target Dtype: {df[target_col].dtype}")
-    print(f"Contains 'Cyberpunk': {'Cyberpunk' in df[target_col].values}")
+    target_col = 'Revenue'
+    print(f"Target: {target_col}")
+    print(f"Features: {[c for c in df.columns if c != target_col]}")
     
     config = AnalysisConfig()
     state = AnalysisState()
@@ -80,6 +81,33 @@ def test_full_dirty_pipeline():
             print(report[start_idx:])
         else:
             print("Leaderboard not found in report!")
+            
+        # VERIFICATION ASSERTIONS
+        print("\n--- Verification Results ---")
+        dropped_cols = [item['col'] for item in state.dropped_columns]
+        print(f"Dropped Columns: {dropped_cols}")
+        
+        # Check Semantic Leakage
+        if 'Gross_Profit' in dropped_cols:
+             print("✅ PASS: 'Gross_Profit' correctly dropped (Substring Match).")
+        else:
+             print("❌ FAIL: 'Gross_Profit' was NOT dropped.")
+             
+        if 'Profit' in dropped_cols:
+             print("✅ PASS: 'Profit' correctly dropped (Exact Term).")
+        else:
+             print("❌ FAIL: 'Profit' was NOT dropped.")
+             
+        if 'Cost' in dropped_cols:
+             print("✅ PASS: 'Cost' correctly dropped.")
+        else:
+             print("❌ FAIL: 'Cost' was NOT dropped.")
+             
+        # Check harmless feature
+        if 'City' in df_clean.columns:
+             print("✅ PASS: 'City' was correctly preserved.")
+        else:
+             print("❌ FAIL: 'City' was incorrectly dropped.")
             
     except Exception as e:
         print(f"FAIL: Pipeline crashed: {e}")
