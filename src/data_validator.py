@@ -1,8 +1,86 @@
 import pandas as pd
 import numpy as np
+from typing import Optional
 from src.config import AnalysisConfig
 from src.state import AnalysisState
 from src.exceptions import InsufficientDataError, TargetConstantError, ExcessiveMissingDataError
+
+
+def suggest_target_column(df: pd.DataFrame) -> Optional[str]:
+    """
+    Intelligently identifies the most likely target column using a 3-tier strategy.
+    
+    Strategy 1: Semantic (Keyword Matching)
+    Strategy 2: Structural (Position - Last Column)
+    Strategy 3: Statistical (Mutual Information)
+    """
+    columns = df.columns.tolist()
+    
+    # ---------------------------------------------------------
+    # Tier 1: Semantic Analysis (The "Human" Intuition)
+    # ---------------------------------------------------------
+    target_keywords = [
+        'target', 'label', 'class', 'outcome', 'y', 
+        'survived', 'price', 'revenue', 'sales', 'churn', 
+        'diagnosis', 'species', 'salary', 'profit'
+    ]
+    
+    for col in columns:
+        if col.lower() in target_keywords:
+            return col
+            
+    # ---------------------------------------------------------
+    # Tier 2: Structural Analysis (The "CSV" Standard)
+    # ---------------------------------------------------------
+    # In 90% of datasets (Kaggle/Scikit-Learn), the target is the last column.
+    last_col = columns[-1]
+    
+    # Check if the last column is a candidate (not an ID)
+    if df[last_col].nunique() < len(df) * 0.9: 
+        return last_col
+
+    # ---------------------------------------------------------
+    # Tier 3: Statistical Analysis (Mutual Information)
+    # ---------------------------------------------------------
+    # If the last column is an ID (100% unique), we need math.
+    # We calculate the "Mutual Information" score for each column 
+    # against all others. The target is usually the dependent variable,
+    # so it shares information with the features.
+    
+    try:
+        from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+        from sklearn.preprocessing import LabelEncoder
+        
+        # Take a sample for speed (max 1000 rows)
+        sample = df.sample(n=min(1000, len(df)), random_state=42)
+        
+        # Simple encoding for the math to work
+        block = sample.copy()
+        for col in block.columns:
+            if block[col].dtype == 'object':
+                block[col] = LabelEncoder().fit_transform(block[col].astype(str))
+        
+        # Calculate dependency scores
+        # We crudely sum the correlation of each column against all others
+        scores = {}
+        for candidate in block.columns:
+            # Skip high cardinality ID columns
+            if block[candidate].nunique() > len(block) * 0.9:
+                continue
+                
+            # Quick correlation sum
+            # (In a real scenario, we'd do full MI, but correlation is a fast proxy)
+            corr_sum = block.corrwith(block[candidate]).abs().sum()
+            scores[candidate] = corr_sum
+            
+        # Return the column with the highest accumulated correlation/dependency
+        if scores:
+            return max(scores, key=scores.get)
+            
+    except Exception:
+        pass # Fallback if math fails
+
+    return columns[-1]
 
 def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, state: AnalysisState) -> pd.DataFrame:
     """

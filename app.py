@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from src.config import AnalysisConfig
 from src.state import AnalysisState
 from src.exceptions import AnalysisError, InsufficientDataError, TargetConstantError, ExcessiveMissingDataError
-from src.data_validator import validate_dataset
+from src.data_validator import validate_dataset, suggest_target_column
 from src.preprocessing import build_preprocessor
 from src.model_trainer import run_experiment
 from src.report_generator import generate_markdown_report
@@ -43,8 +43,14 @@ if uploaded_file is not None:
         st.subheader("Data Preview")
         st.dataframe(df.head())
         
+        st.dataframe(df.head())
+        
         # Target selection
-        target_col = st.selectbox("Select Target Column", df.columns)
+        # Smart Defaulting: Use discovered target column
+        suggested_target = suggest_target_column(df)
+        default_index = list(df.columns).index(suggested_target) if suggested_target in df.columns else len(df.columns) - 1
+        
+        target_col = st.selectbox("Select Target Column", df.columns, index=default_index)
         
         if st.button("Run Autonomous Analysis"):
             # Configuration and State
