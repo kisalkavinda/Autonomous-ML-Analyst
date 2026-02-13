@@ -28,8 +28,15 @@ uploaded_file = st.file_uploader("Upload your dataset (CSV)", type=["csv"])
 
 if uploaded_file is not None:
     try:
-        # Read data
-        df = pd.read_csv(uploaded_file)
+        # Add a toggle for headerless CSVs
+        has_header = st.checkbox("My dataset has a header row", value=True)
+        
+        if has_header:
+            df = pd.read_csv(uploaded_file)
+        else:
+            # If no header, Pandas auto-assigns numbers (0, 1, 2...), but we can make them strings
+            df = pd.read_csv(uploaded_file, header=None)
+            df.columns = [f"Feature_{i}" for i in range(df.shape[1])]
         
         st.subheader("Data Preview")
         st.dataframe(df.head())
