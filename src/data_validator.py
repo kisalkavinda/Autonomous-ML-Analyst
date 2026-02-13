@@ -95,13 +95,34 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     Validates and cleans the dataset based on configuration rules.
     Updates the state with dropped columns and reasons.
     """
+    # ---------------------------------------------------------
+    # NEW: Capture Dataset Snapshot (Before Cleaning)
+    # ---------------------------------------------------------
+    state.dataset_stats = {
+        "rows": len(df),
+        "columns": len(df.columns),
+        "numeric_features": len(df.select_dtypes(include=['number']).columns),
+        "categorical_features": len(df.select_dtypes(include=['object', 'category']).columns)
+    }
+    
+    # Capture Target Distribution (if categorical)
+    if df[target_col].dtype == 'object' or df[target_col].nunique() < 20: # Heuristic for categorical
+        # Get value counts as percentages
+        dist = df[target_col].value_counts(normalize=True).head(10).to_dict()
+        # Convert to readable percentage strings
+        state.target_distribution = {k: f"{v:.1%}" for k, v in dist.items()}
+        
+    # ---------------------------------------------------------
+
     # 1. Check minimum samples
     if len(df) < config.min_samples_absolute:
         raise InsufficientDataError(f"Dataset has {len(df)} samples, which is less than the minimum required ({config.min_samples_absolute}).")
+    state.validations_passed.append(f"Dataset passed minimum sample threshold (n={len(df)})")
 
     # 2. Check if target is constant
     if df[target_col].nunique() <= 1:
         raise TargetConstantError(f"Target column '{target_col}' is constant (1 or fewer unique values).")
+    state.validations_passed.append(f"Target variance verified ({df[target_col].nunique()} unique classes/values)")
 
     # NEW: Coerce dirty numeric targets
     # If target is an object, check if it's actually numbers mixed with text
@@ -120,6 +141,7 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     missing_pct = df[target_col].isnull().mean()
     if missing_pct > config.max_missing_percentage:
         raise ExcessiveMissingDataError(f"Target column '{target_col}' has {missing_pct:.2%} missing values, exceeding limit of {config.max_missing_percentage:.0%}.")
+    state.validations_passed.append("No excessive missing values detected")
 
     # NEW: Drop rows where target is NaN (including coerced ones)
     initial_len = len(df)

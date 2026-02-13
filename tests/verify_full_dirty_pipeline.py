@@ -76,11 +76,11 @@ def test_full_dirty_pipeline():
         print("="*40)
         
         # Print the Model Leaderboard section
-        if "## 🏆 Model Leaderboard" in report:
-            start_idx = report.find("## 🏆 Model Leaderboard")
-            print(report[start_idx:])
-        else:
-            print("Leaderboard not found in report!")
+        print("\n" + "="*40)
+        print("FINAL REPORT START")
+        print("="*40)
+        print(report[:1000]) # Print first 1000 chars to see Overview and Validation sections
+        print("..." + "="*40)
             
         # VERIFICATION ASSERTIONS
         print("\n--- Verification Results ---")

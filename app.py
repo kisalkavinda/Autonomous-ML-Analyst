@@ -80,7 +80,7 @@ if uploaded_file is not None:
                     # ==========================================
                     if state.feature_importance:
                         st.divider() # Adds a clean horizontal line
-                        st.subheader("🧠 Explainable AI: Top Feature Drivers")
+                        st.subheader("📊 Model Interpretability: Top Feature Drivers (Absolute Importance)")
                         st.write("This chart shows the absolute mathematical weight the winning model assigned to the top variables when making its predictions.")
                         
                         # Create a Matplotlib figure
