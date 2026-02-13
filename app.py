@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 from dotenv import load_dotenv
 
 from src.config import AnalysisConfig
@@ -66,6 +68,64 @@ if uploaded_file is not None:
                 with st.spinner("Generating report..."):
                     report = generate_markdown_report(state, target_col)
                     st.markdown(report)
+
+                    # ==========================================
+                    # 📊 RENDER EXPLAINABLE AI CHART
+                    # ==========================================
+                    if state.feature_importance:
+                        st.divider() # Adds a clean horizontal line
+                        st.subheader("🧠 Explainable AI: Top Feature Drivers")
+                        st.write("This chart shows the absolute mathematical weight the winning model assigned to the top variables when making its predictions.")
+                        
+                        # Create a Matplotlib figure
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        
+                        # Extract the data from the state
+                        features = list(state.feature_importance.keys())
+                        scores = list(state.feature_importance.values())
+                        
+                        # Draw a beautiful Seaborn bar chart
+                        sns.barplot(x=scores, y=features, ax=ax, palette="mako")
+                        
+                        # Format the chart cleanly
+                        ax.set_xlabel("Relative Importance / Absolute Coefficient Weight")
+                        ax.set_ylabel("Feature Name")
+                        ax.set_title(f"What drove the {state.selected_model}'s predictions?")
+                        
+                        # Remove the top and right borders for a cleaner, modern look
+                        sns.despine()
+                        
+                        # Display the chart in Streamlit
+                        st.pyplot(fig)
+
+                    # ==========================================
+                    # 📊 RENDER EXPLAINABLE AI CHART
+                    # ==========================================
+                    if state.feature_importance:
+                        st.divider() # Adds a clean horizontal line
+                        st.subheader("🧠 Explainable AI: Top Feature Drivers")
+                        st.write("This chart shows the absolute mathematical weight the winning model assigned to the top variables when making its predictions.")
+                        
+                        # Create a Matplotlib figure
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        
+                        # Extract the data from the state
+                        features = list(state.feature_importance.keys())
+                        scores = list(state.feature_importance.values())
+                        
+                        # Draw a beautiful Seaborn bar chart
+                        sns.barplot(x=scores, y=features, ax=ax, palette="mako")
+                        
+                        # Format the chart cleanly
+                        ax.set_xlabel("Relative Importance / Absolute Coefficient Weight")
+                        ax.set_ylabel("Feature Name")
+                        ax.set_title(f"What drove the {state.selected_model}'s predictions?")
+                        
+                        # Remove the top and right borders for a cleaner, modern look
+                        sns.despine()
+                        
+                        # Display the chart in Streamlit
+                        st.pyplot(fig)
                     
             except InsufficientDataError as e:
                 st.error(f"🛑 Data Error: {e}")

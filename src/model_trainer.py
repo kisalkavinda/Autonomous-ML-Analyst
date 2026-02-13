@@ -116,9 +116,48 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
     
     # We need to retrieve the best model instance again to ensure a fresh fit?
     # Actually, reusing the pipeline object and calling fit(X, y) will re-train it.
-    # However, inside the loop 'pipeline' variable changes. We saved 'best_pipeline'.
-    
-    # NOTE: In the loop, `pipeline` is created fresh. `best_pipeline` holds reference to one of them.
+    # However,    # Fit the best model on the training data
     best_pipeline.fit(X, y)
     
+    # ==========================================
+    # 🧠 XAI: FEATURE IMPORTANCE EXTRACTION
+    # ==========================================
+    try:
+        import numpy as np
+        
+        # 1. Isolate the two steps of your pipeline: Preprocessor and Model
+        preprocessor_step = best_pipeline.named_steps['preprocessor']
+        model_step = best_pipeline.steps[-1][1] 
+        
+        # 2. Extract feature names post-transformation 
+        # (This handles the fact that One-Hot Encoding turns 1 column into many)
+        feature_names = preprocessor_step.get_feature_names_out()
+        
+        # 3. Extract raw weights based on the type of algorithm
+        importances = None
+        if hasattr(model_step, 'feature_importances_'):
+            # Tree-based models (Random Forest, Gradient Boosting) use feature_importances_
+            importances = model_step.feature_importances_
+        elif hasattr(model_step, 'coef_'):
+            # Linear models (Logistic/Linear Regression) use coefficients.
+            # We use absolute value (np.abs) because a massive negative coefficient 
+            # is just as important as a positive one!
+            coefs = model_step.coef_
+            importances = np.abs(coefs[0]) if len(coefs.shape) > 1 else np.abs(coefs)
+        
+        # 4. Map the names to the weights, sort them, and save the top 10
+        if importances is not None and len(feature_names) == len(importances):
+            # Zip the names and weights together, and sort them highest to lowest
+            feat_imp = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)[:10]
+            
+            # Clean up the names (Scikit-learn adds ugly prefixes like 'cat__' or 'num__')
+            clean_feat_imp = {k.split('__')[-1]: float(v) for k, v in feat_imp}
+            
+            # Save it to the system's memory!
+            state.feature_importance = clean_feat_imp
+            
+    except Exception as e:
+        # If extraction fails, log it silently. Never crash the main pipeline!
+        state.warnings.append(f"Could not extract feature importance: {str(e)}")
+
     return best_pipeline
