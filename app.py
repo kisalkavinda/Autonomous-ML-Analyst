@@ -85,7 +85,8 @@ if uploaded_file is not None:
                         scores = list(state.feature_importance.values())
                         
                         # Draw a beautiful Seaborn bar chart
-                        sns.barplot(x=scores, y=features, ax=ax, palette="mako")
+                        # Fixes FutureWarning: Assign x to hue and set legend=False
+                        sns.barplot(x=scores, y=features, hue=scores, ax=ax, palette="mako", legend=False)
                         
                         # Format the chart cleanly
                         ax.set_xlabel("Relative Importance / Absolute Coefficient Weight")
