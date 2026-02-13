@@ -43,7 +43,7 @@ if uploaded_file is not None:
         st.subheader("Data Preview")
         st.dataframe(df.head())
         
-        st.dataframe(df.head())
+
         
         # Target selection
         # Smart Defaulting: Use discovered target column
