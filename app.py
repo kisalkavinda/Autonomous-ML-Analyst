@@ -524,7 +524,8 @@ if st.session_state.get("model_ready", False):
                 inf_df = clean_dataset(raw_inf_df)
 
                 # 🚀 INJECT FEATURE ENGINEERING HERE
-                inf_df = engineer_features(inf_df)
+                # Pass the trained state to ensure consistent feature engineering (using saved metadata)
+                inf_df = engineer_features(inf_df, state=st.session_state.get("analysis_state"))
 
                 # Feature Alignment
                 required_features = st.session_state["feature_columns"]

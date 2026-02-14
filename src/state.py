@@ -11,6 +11,7 @@ class AnalysisState:
     selected_model: Optional[str] = None
     # --- NEW: Add this line to store the Explainable AI weights ---
     feature_importance: Dict[str, float] = field(default_factory=dict)
+    feature_engineering_metadata: Dict[str, Any] = field(default_factory=dict) # New: Stores decisions for inference consistency
     
     # --- NEW: Reporting Enhancements ---
     dataset_stats: Dict[str, Any] = field(default_factory=dict)

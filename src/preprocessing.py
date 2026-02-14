@@ -29,6 +29,7 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
     """
     Automatically creates derived mathematical features.
     Designed to be safely run in both Lab (Training) and Factory (Inference).
+    Uses state.feature_engineering_metadata to ensure consistency between Train and Test.
     """
     df_eng = df.copy()
     new_features = []
@@ -44,6 +45,56 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
     if not numeric_cols:
         return df_eng # No numeric features to engineer
 
+    # --- DETERMINISTIC MODE (INFERENCE) ---
+    # If metadata exists, we follow the instructions exactly, ignoring data distribution
+    if state and state.feature_engineering_metadata:
+        meta = state.feature_engineering_metadata
+        
+        # 1. Log Transforms
+        for col in meta.get('log_transform', []):
+            if col in df_eng.columns:
+                df_eng[f'{col}_log'] = np.log1p(df_eng[col])
+                
+        # 2. Squared Transforms
+        for col in meta.get('squared_transform', []):
+            if col in df_eng.columns:
+                df_eng[f'{col}_squared'] = df_eng[col] ** 2
+                
+        # 3. Interactions
+        for col1, col2 in meta.get('interactions', []):
+            if col1 in df_eng.columns and col2 in df_eng.columns:
+                df_eng[f'{col1}_x_{col2}'] = df_eng[col1] * df_eng[col2]
+                
+        # 4. Age Groups
+        for col in meta.get('age_groups', []):
+            if col in df_eng.columns:
+                try:
+                    df_eng[f'{col}_group'] = pd.cut(
+                        df_eng[col], 
+                        bins=[0, 18, 35, 50, 65, 100],
+                        labels=['young', 'adult', 'middle', 'senior', 'elderly']
+                    ).astype(str)
+                except: pass
+                
+        # 5. Ratios
+        for col1, col2 in meta.get('ratios', []):
+            if col1 in df_eng.columns and col2 in df_eng.columns:
+                 safe_denominator = df_eng[col2].replace(0, np.nan)
+                 df_eng[f'{col1}_per_{col2}'] = df_eng[col1] / safe_denominator
+                 
+        return df_eng
+
+    # --- DISCOVERY MODE (TRAINING) ---
+    # We decide what features to create and record the decisions
+    
+    metadata = {
+        'log_transform': [],
+        'squared_transform': [],
+        'interactions': [],
+        'age_groups': [],
+        'ratios': []
+    }
+
     # 1. Log Transforms for Highly Skewed Data (Normalizes long tails)
     for col in numeric_cols:
         if df_eng[col].dropna().min() >= 0: # Log only works on positive numbers (and 0 via log1p)
@@ -54,6 +105,7 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
                     if skewness > 1.0: # Highly skewed
                         df_eng[f'{col}_log'] = np.log1p(df_eng[col])
                         new_features.append(f'{col}_log')
+                        metadata['log_transform'].append(col)
                 except:
                     pass
 
@@ -62,12 +114,14 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
     for col in numeric_cols[:5]: # Expanded to top 5 based on feedback
         df_eng[f'{col}_squared'] = df_eng[col] ** 2
         new_features.append(f'{col}_squared')
+        metadata['squared_transform'].append(col)
 
     # 3. Interaction Terms (Multiplying the top 2 numeric features)
     if len(numeric_cols) >= 2:
         col1, col2 = numeric_cols[0], numeric_cols[1]
         df_eng[f'{col1}_x_{col2}'] = df_eng[col1] * df_eng[col2]
         new_features.append(f'{col1}_x_{col2}')
+        metadata['interactions'].append((col1, col2))
 
     # 4. Binning for Age-like columns
     # Heuristic: Column name contains 'age' and values are within human lifespan
@@ -75,8 +129,6 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
         if 'age' in col.lower() and df_eng[col].max() < 120 and df_eng[col].min() >= 0:
             # Create age groups
             try:
-                # pd.cut returns categorical, we might need to encode it later.
-                # But our pipeline handles categorical/object.
                 # Cast to string to ensure it's treated as categorical by our pipeline selector
                 df_eng[f'{col}_group'] = pd.cut(
                     df_eng[col], 
@@ -84,6 +136,7 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
                     labels=['young', 'adult', 'middle', 'senior', 'elderly']
                 ).astype(str)
                 new_features.append(f'{col}_group')
+                metadata['age_groups'].append(col)
             except:
                 pass
 
@@ -97,6 +150,7 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
         # Limit to first few to avoid explosion
         for i, col1 in enumerate(financial_cols[:3]):
             for col2 in financial_cols[i+1:4]:
+                metadata['ratios'].append((col1, col2))
                 # Avoid division by zero
                 safe_denominator = df_eng[col2].replace(0, np.nan)
                 ratio_name = f'{col1}_per_{col2}'
@@ -105,11 +159,14 @@ def engineer_features(df: pd.DataFrame, target_col: str = None, state: AnalysisS
                 # Let's leave as NaN and let Imputer handle it
                 new_features.append(ratio_name)
 
-    if state and new_features:
-        state.preprocessing_steps.append(
-            f"🔬 Generated {len(new_features)} engineered features: "
-            f"{', '.join(new_features[:5])}{'...' if len(new_features) > 5 else ''}"
-        )
+    if state:
+        if new_features:
+            state.preprocessing_steps.append(
+                f"🔬 Generated {len(new_features)} engineered features: "
+                f"{', '.join(new_features[:5])}{'...' if len(new_features) > 5 else ''}"
+            )
+        # SAVE THE DECISIONS
+        state.feature_engineering_metadata = metadata
 
     return df_eng
 
