@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split, cross_val_score, Randomize
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, RandomForestClassifier, GradientBoostingClassifier, VotingRegressor, VotingClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import mean_absolute_error, f1_score, make_scorer
+from sklearn.inspection import permutation_importance
 from src.config import AnalysisConfig
 from src.state import AnalysisState
 
@@ -338,6 +339,42 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
             if importances is not None and len(feature_names) == len(importances):
                 feat_imp = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)[:10]
                 state.feature_importance = {k.split('__')[-1]: float(v) for k, v in feat_imp}
+            else:
+                # 🚀 FALLBACK: Permutation Importance (Model Agnostic)
+                # Works for Ensembles (VotingRegressor) and any other model without .feature_importances_
+                try:
+                    # We need to pass the fitted pipeline and the raw X, y (or transformed X if passing model)
+                    # permutation_importance takes the estimator and X, y. 
+                    # If we pass best_pipeline, it handles preprocessing internally for each permutation.
+                    # scoring can be auto-detected or specified.
+                    perm_result = permutation_importance(
+                        best_pipeline, X, y, 
+                        n_repeats=5, 
+                        random_state=42, 
+                        n_jobs=-1
+                    )
+                    
+                    # Get mean importance
+                    perm_importances = perm_result.importances_mean
+                    
+                    # Map to feature names
+                    # Note: X columns might not match feature_names if preprocessor changes inputs
+                    # But feature_names comes from preprocessor.get_feature_names_out() usually.
+                    # Ideally, permutation importance on the Pipeline uses the original X columns.
+                    # But feature names tracked in 'state' usually refer to the Engineered features?
+                    # Actually, if we use the Pipeline, we are permeating the RAW columns (X).
+                    # So the importance will be for "Pclass", "Age", "Sex" (Raw features).
+                    # This is actually BETTER for the user than "onehot__Sex_male".
+                    
+                    # So we should map it to X.columns
+                    raw_feature_names = X.columns.tolist()
+                    
+                    if len(raw_feature_names) == len(perm_importances):
+                        feat_imp = sorted(zip(raw_feature_names, perm_importances), key=lambda x: x[1], reverse=True)[:10]
+                        state.feature_importance = {str(k): float(v) for k, v in feat_imp}
+                        
+                except Exception as perm_e:
+                    state.warnings.append(f"Permutation Importance also failed: {str(perm_e)}")
 
     except Exception as e:
         state.warnings.append(f"Could not extract feature importance/SHAP: {str(e)}")
