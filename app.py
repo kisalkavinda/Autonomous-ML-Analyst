@@ -252,24 +252,34 @@ st.markdown("""
     
     /* General Markdown Text & Labels */
     div.stMarkdown > div, label, .stFileUploader div {
-        font-size: 1.2rem !important;
+        font-size: 1.3rem !important; /* Increased from 1.2rem */
+        line-height: 1.6;
     }
     
     /* Specific overrides for File Uploader dropzone text */
     [data-testid="stFileUploaderDropzone"] div, [data-testid="stFileUploaderDropzone"] small {
-        font-size: 1.2rem !important;
+        font-size: 1.3rem !important;
     }
 
     /* Tabs - Larger and Bolder */
     button[data-baseweb="tab"] div p {
-        font-size: 1.5rem !important;
+        font-size: 1.6rem !important;
         font-weight: 700 !important;
     }
     
+    /* Report Specifics */
+    li { font-size: 1.3rem !important; margin-bottom: 0.5rem; }
+    p { font-size: 1.3rem !important; }
+    strong { font-weight: 800 !important; color: #60a5fa; } /* Highlight bold text */
+    
+    /* Tables (Leaderboard) */
+    th { font-size: 1.4rem !important; }
+    td { font-size: 1.3rem !important; }
+
     /* Headers */
-    h1 { font-size: 4rem !important; }
-    h2 { font-size: 2.5rem !important; }
-    h3 { font-size: 1.8rem !important; }
+    h1 { font-size: 4.5rem !important; }
+    h2 { font-size: 3rem !important; }
+    h3 { font-size: 2.2rem !important; }
 
     /* Custom Gradient Main Header */
     .main-header {
