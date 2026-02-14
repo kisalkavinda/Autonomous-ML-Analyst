@@ -1,6 +1,76 @@
 import streamlit as st
 import pandas as pd
 import os
+import io
+import zipfile
+import matplotlib.pyplot as plt
+
+def create_api_zip(model_path, meta_path, feature_columns, feature_dtypes):
+    """Dynamically writes a FastAPI main.py script and zips it with the model."""
+    
+    # 1. Generate Pydantic fields based on actual data types
+    fields = []
+    dict_mapping = "{\n"
+    for col in feature_columns:
+        dtype = feature_dtypes.get(col, "float64")
+        py_type = "float" if "float" in str(dtype) else "int" if "int" in str(dtype) else "str"
+        
+        # Make column names Python-safe for variables
+        safe_col = col.replace(" ", "_").replace("-", "_").replace("/", "_").replace("(", "").replace(")", "")
+        fields.append(f"    {safe_col}: {py_type}")
+        dict_mapping += f"            '{col}': data.{safe_col},\n"
+        
+    fields_str = "\n".join(fields)
+    dict_mapping += "        }"
+
+    # 2. Write the FastAPI main.py template
+    fastapi_script = f'''from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+import pandas as pd
+import uvicorn
+
+app = FastAPI(title="Autonomous ML API", description="Auto-generated inference server")
+model = joblib.load("best_model.pkl")
+
+# Dynamically generated input schema
+class InferenceData(BaseModel):
+{fields_str}
+
+@app.post("/predict")
+def predict(data: InferenceData):
+    # Reconstruct original feature names for the model
+    input_dict = {dict_mapping}
+    df = pd.DataFrame([input_dict])
+    
+    prediction = model.predict(df)
+    
+    # Handle both regression (float) and classification (string/int) outputs
+    result = prediction[0]
+    if hasattr(result, 'item'): 
+        result = result.item()
+        
+    return {{"prediction": result}}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+'''
+
+    # 3. Create Requirements file
+    requirements = "fastapi\nuvicorn\npydantic\npandas\nscikit-learn\njoblib\n"
+
+    # 4. Bundle into a ZIP in memory
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(model_path, "best_model.pkl")
+        z.write(meta_path, "metadata.json")
+        z.writestr("main.py", fastapi_script)
+        z.writestr("requirements.txt", requirements)
+        z.writestr("README.md", "# How to run your API\\n1. `pip install -r requirements.txt`\\n2. `python main.py`\\n3. Go to http://localhost:8000/docs to test your model!")
+        
+    buffer.seek(0)
+    return buffer
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 from dotenv import load_dotenv
@@ -255,13 +325,29 @@ with tab_train:
                 # ==========================================
                 from src.utils import save_model_package
                 try:
+                    # Save local files
                     model_path, meta_path = save_model_package(best_model, state)
-                    st.success(f"💾 Model Saved! ({model_path})")
-                    # Ideally provide download button here
-                    with open(model_path, "rb") as f:
-                         st.download_button("📥 Download Model (.pkl)", f, file_name=os.path.basename(model_path))
+                    
+                    # Generate the API Deployment ZIP
+                    zip_buffer = create_api_zip(
+                        model_path, 
+                        meta_path, 
+                        st.session_state["feature_columns"], 
+                        st.session_state.get("feature_dtypes", {c: "float64" for c in st.session_state["feature_columns"]})
+                    )
+                    
+                    st.success(f"💾 Model Saved and API Generated!")
+                    
+                    # Provide the ZIP download
+                    st.download_button(
+                        label="🚀 Download Production API Package (.zip)",
+                        data=zip_buffer,
+                        file_name="autonomous_ml_api.zip",
+                        mime="application/zip",
+                        type="primary"
+                    )
                 except Exception as e:
-                    st.warning(f"⚠️ Could not save model to disk: {e}")
+                    st.warning(f"⚠️ Could not build API package: {e}")
                 
                  
                 # Store results in session state
