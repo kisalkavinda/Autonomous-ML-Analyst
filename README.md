@@ -13,6 +13,26 @@ The **Autonomous ML Analyst** is a "data-scientist-in-a-box" application. Unlike
 
 It is designed to be **crash-proof**, handling edge cases like empty features, headerless files, and corrupted targets gracefully.
 
+## 🌟 Advanced Features (v1.1)
+
+### 1. Auto-Generated FastAPI Deployment
+The system now includes a **"Production Deployment"** module in the Analysis tab. It automatically packages your trained model into a ready-to-deploy ZIP file containing:
+- `main.py`: A high-performance FastAPI server.
+- `Dockerfile`: Container configuration for instant deployment.
+- `requirements.txt`: Minimal dependencies for the inference environment.
+- `metadata.json`: Model versioning and training context.
+
+### 2. Autonomous Inference Factory
+The "Worker Mode" (Inference) has been hardened for production:
+- **Deterministic Feature Engineering**: Replays the exact transformation logic (e.g., Log transforms, Poly features) used during training to ensure consistency.
+- **Smart Validation**: Automatically detects data drift and imputes missing values with friendly, informational user feedback.
+
+### 3. Real Confidence Intervals
+For regression tasks using Random Forest models, the system calculates **variance-based uncertainty**. Instead of a single point prediction, you get a 95% confidence interval derived from the spread of individual decision trees ($\mu \pm 1.96\sigma$).
+
+### 4. Premium UI
+A developer-centric "Neon Blue" dark theme (configured via `.streamlit/config.toml`) provides a modern, high-contrast interface for long coding sessions.
+
 ---
 
 ## 🏗️ System Architecture
