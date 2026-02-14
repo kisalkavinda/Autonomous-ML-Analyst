@@ -167,6 +167,7 @@ def validate_inference_data(inf_df, feature_columns, training_stats):
     missing_features = set(feature_columns) - set(inf_df.columns)
     if missing_features:
         issues.append(f"❌ Missing required columns: {missing_features}")
+        return issues # Fatal error, stop checking
     
     # 2. Check Data Types
     if 'dtypes' in training_stats:
@@ -179,13 +180,13 @@ def validate_inference_data(inf_df, feature_columns, training_stats):
                 if not pd.api.types.is_numeric_dtype(inf_df[col]):
                     issues.append(f"⚠️ Type Mismatch: '{col}' should be numeric but is {inf_df[col].dtype}")
 
-    # 3. Check for Nulls
+    # 3. Check for Nulls (Now Informational)
     # Filter to only required columns
     inf_subset = inf_df[[c for c in feature_columns if c in inf_df.columns]]
     null_cols = inf_subset.isnull().any()
     if null_cols.any():
         # Changed from warning to info/note as the pipeline handles imputation
-        issues.append(f"ℹ️ Note: Null values detected in {list(null_cols[null_cols].index)} (will be auto-imputed)")
+        issues.append(f"ℹ️ Null values detected in: {list(null_cols[null_cols].index)} (will be auto-imputed)")
         
     # 4. Check Value Ranges (Drift Detection)
     if 'ranges' in training_stats:
@@ -195,13 +196,12 @@ def validate_inference_data(inf_df, feature_columns, training_stats):
                 if pd.api.types.is_numeric_dtype(inf_df[col]):
                      inf_min, inf_max = inf_df[col].min(), inf_df[col].max()
                      
-                     # Relaxed heuristics for "wildly out of range"
-                     # Logic: Alert if value is < 20% of min (if pos) or > 300% of max
+                     # RELAXED HEURISTIC: < 20% of old min or > 300% of old max
                      # This prevents alerts for normal variations (like Age 80 vs 76)
                      if (train_min > 0 and inf_min < train_min * 0.2) or (inf_max > train_max * 3.0):
                          issues.append(
-                            f"⚠️ Data Drift: '{col}' values are significantly out of training range "
-                            f"(Train: {train_min:.1f}-{train_max:.1f}, Inf: {inf_min:.1f}-{inf_max:.1f})"
+                            f"⚠️ Data Drift Warnings: '{col}' has unusual values "
+                            f"(Train: {train_min:.2f}-{train_max:.2f}, Inf: {inf_min:.2f}-{inf_max:.2f})"
                         )
     
     return issues
@@ -538,6 +538,8 @@ if st.session_state.get("model_ready", False):
                    for issue in validation_issues:
                        if "❌" in issue:
                            st.error(issue)
+                       elif "ℹ️" in issue:
+                           st.info(issue) # Renders a non-alarming blue box
                        else:
                            st.warning(issue)
                 
