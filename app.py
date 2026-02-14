@@ -217,11 +217,11 @@ st.markdown("""
     .stButton>button {
         width: 100%;
         border-radius: 6px;
-        height: 3.8em; /* Increased from 3.2em */
-        font-size: 1.2rem; /* Added font size */
+        height: 3.8em;
+        font-size: 1.2rem;
         font-weight: 700;
         background-color: transparent;
-        border: 2px solid #3b82f6; /* Thicker border */
+        border: 2px solid #3b82f6;
         color: #f8fafc;
         transition: all 0.3s ease;
         box-shadow: 0 0 10px rgba(59, 130, 246, 0.1);
@@ -247,17 +247,33 @@ st.markdown("""
     .stSelectbox>div>div, .stFileUploader>div>div, .stTextInput>div>div {
         background-color: #1e293b !important;
         border-radius: 6px;
-        font-size: 1.1rem;
+        font-size: 1.2rem; /* Increased */
     }
     
-    /* General Markdown Text */
-    div.stMarkdown > div {
-        font-size: 1.1rem;
+    /* General Markdown Text & Labels */
+    div.stMarkdown > div, label, .stFileUploader div {
+        font-size: 1.2rem !important;
     }
+    
+    /* Specific overrides for File Uploader dropzone text */
+    [data-testid="stFileUploaderDropzone"] div, [data-testid="stFileUploaderDropzone"] small {
+        font-size: 1.2rem !important;
+    }
+
+    /* Tabs - Larger and Bolder */
+    button[data-baseweb="tab"] div p {
+        font-size: 1.5rem !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Headers */
+    h1 { font-size: 4rem !important; }
+    h2 { font-size: 2.5rem !important; }
+    h3 { font-size: 1.8rem !important; }
 
     /* Custom Gradient Main Header */
     .main-header {
-        font-size: 4rem; /* Increased from 3rem */
+        font-size: 4.5rem; /* Increased */
         background: -webkit-linear-gradient(45deg, #60a5fa, #3b82f6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -269,7 +285,7 @@ st.markdown("""
     
     /* Sub Header */
     .sub-header {
-        font-size: 1.5rem; /* Increased from 1.2rem */
+        font-size: 1.8rem; /* Increased */
         color: #94a3b8;
         text-align: center;
         margin-bottom: 3rem;
