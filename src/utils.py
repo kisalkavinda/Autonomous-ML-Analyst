@@ -6,20 +6,20 @@ def optimize_memory(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggressively reduces DataFrame memory footprint by downcasting numeric types.
     float64 -> float32, int64 -> int32 (when safe).
+    Operates in-place to avoid memory spikes.
     Typically cuts memory usage by ~50%.
     """
-    df_opt = df.copy()
+    # Operates in-place (no copy)
+    for col in df.select_dtypes(include=['float64']).columns:
+        df[col] = df[col].astype('float32')
     
-    for col in df_opt.select_dtypes(include=['float64']).columns:
-        df_opt[col] = df_opt[col].astype('float32')
-    
-    for col in df_opt.select_dtypes(include=['int64']).columns:
-        col_min, col_max = df_opt[col].min(), df_opt[col].max()
+    for col in df.select_dtypes(include=['int64']).columns:
+        col_min, col_max = df[col].min(), df[col].max()
         # Only downcast if values fit safely in int32 range
         if col_min >= np.iinfo(np.int32).min and col_max <= np.iinfo(np.int32).max:
-            df_opt[col] = df_opt[col].astype('int32')
+            df[col] = df[col].astype('int32')
     
-    return df_opt
+    return df
 
 
 def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:

@@ -153,7 +153,7 @@ from src.report_generator import generate_markdown_report
 from src.utils import clean_dataset, optimize_memory
 
 # Memory Safety: Max rows for cloud training
-MAX_TRAINING_ROWS = 20000
+MAX_TRAINING_ROWS = 10000
 
 
 # Load environment variables
