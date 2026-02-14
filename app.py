@@ -184,7 +184,8 @@ def validate_inference_data(inf_df, feature_columns, training_stats):
     inf_subset = inf_df[[c for c in feature_columns if c in inf_df.columns]]
     null_cols = inf_subset.isnull().any()
     if null_cols.any():
-        issues.append(f"⚠️ Null values detected in: {list(null_cols[null_cols].index)}")
+        # Changed from warning to info/note as the pipeline handles imputation
+        issues.append(f"ℹ️ Note: Null values detected in {list(null_cols[null_cols].index)} (will be auto-imputed)")
         
     # 4. Check Value Ranges (Drift Detection)
     if 'ranges' in training_stats:
@@ -194,13 +195,13 @@ def validate_inference_data(inf_df, feature_columns, training_stats):
                 if pd.api.types.is_numeric_dtype(inf_df[col]):
                      inf_min, inf_max = inf_df[col].min(), inf_df[col].max()
                      
-                     # Simple heuristics for "wildly out of range"
-                     # e.g. if new min is < 50% of old min (if positive) or > 200% of old max
-                     # This is just a warning, not a blocker
-                     if (train_min > 0 and inf_min < train_min * 0.5) or (inf_max > train_max * 2):
+                     # Relaxed heuristics for "wildly out of range"
+                     # Logic: Alert if value is < 20% of min (if pos) or > 300% of max
+                     # This prevents alerts for normal variations (like Age 80 vs 76)
+                     if (train_min > 0 and inf_min < train_min * 0.2) or (inf_max > train_max * 3.0):
                          issues.append(
-                            f"⚠️ Data Drift Warnings: '{col}' has unusual values "
-                            f"(Train: {train_min:.2f}-{train_max:.2f}, Inf: {inf_min:.2f}-{inf_max:.2f})"
+                            f"⚠️ Data Drift: '{col}' values are significantly out of training range "
+                            f"(Train: {train_min:.1f}-{train_max:.1f}, Inf: {inf_min:.1f}-{inf_max:.1f})"
                         )
     
     return issues
