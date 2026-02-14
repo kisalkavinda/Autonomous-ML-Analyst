@@ -348,7 +348,55 @@ def predict_with_confidence(pipeline, X, confidence=0.95):
     """
     Predicts with confidence intervals for regression models.
     Returns (predictions, lower_bound, upper_bound).
-    For non-probabilistic models, returns predictions for all.
+    For Random Forest, uses tree variance.
+    For others, returns point estimates (lower=upper=pred).
     """
+    import numpy as np
+    
+    # 1. Get the final estimator
+    if hasattr(pipeline, 'named_steps'):
+        model = pipeline.named_steps['model']
+        # preprocessing might be needed if we access model directly
+        # But pipeline.predict handles it. 
+        # To access trees, we need transformed X.
+        preprocessor = pipeline.named_steps.get('preprocessor')
+        if preprocessor:
+            X_transformed = preprocessor.transform(X)
+        else:
+            X_transformed = X
+    else:
+        model = pipeline
+        X_transformed = X
+
+    # 2. Base Predictions
     preds = pipeline.predict(X)
-    return preds, preds, preds
+
+    # 3. Confidence Intervals (Random Forest specific)
+    lower = preds
+    upper = preds
+    
+    try:
+        if hasattr(model, 'estimators_'): 
+            # Random Forest / Extra Trees / Bagging
+            # Collect predictions from all trees
+            # Note: This can be slow for large forests/datasets
+            tree_preds = []
+            for estimator in model.estimators_:
+                tree_preds.append(estimator.predict(X_transformed))
+            
+            tree_preds = np.array(tree_preds)
+            
+            # Calculate Standard Deviation of predictions
+            sigma = np.std(tree_preds, axis=0)
+            
+            # 95% CI = Mean +/- 1.96 * Sigma
+            # We use the ensemble prediction (preds) as the mean
+            lower = preds - 1.96 * sigma
+            upper = preds + 1.96 * sigma
+            
+    except Exception as e:
+        print(f"Confidence Interval extraction failed: {e}")
+        # Fallback to point estimate
+        pass
+        
+    return preds, lower, upper
