@@ -519,6 +519,8 @@ if st.session_state.get("model_ready", False):
 
         if inference_file:
             try:
+                # Reset file pointer to beginning to ensure it works on script reruns (e.g. download click)
+                inference_file.seek(0)
                 raw_inf_df = pd.read_csv(inference_file)
                 
                 # 🧹 CLEANING INTERCEPTOR (Factory Mode)
