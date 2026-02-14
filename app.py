@@ -329,11 +329,13 @@ with tab_train:
                     model_path, meta_path = save_model_package(best_model, state)
                     
                     # Generate the API Deployment ZIP
+                    # Use local X variable (from training scope) instead of session_state
+                    # because session_state isn't updated until further down.
                     zip_buffer = create_api_zip(
                         model_path, 
                         meta_path, 
-                        st.session_state["feature_columns"], 
-                        st.session_state.get("feature_dtypes", {c: "float64" for c in st.session_state["feature_columns"]})
+                        list(X.columns), 
+                        X.dtypes.to_dict()
                     )
                     
                     st.success(f"💾 Model Saved and API Generated!")
