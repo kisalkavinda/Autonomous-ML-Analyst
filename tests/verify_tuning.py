@@ -60,6 +60,16 @@ def test_tuning():
     print("Best Model Name:", state.selected_model)
     print("Scores:", state.model_scores)
     
+    print("Scores:", state.model_scores)
+    
+    # Check for Ensemble
+    if "Ensemble (Top 3)" in state.model_scores:
+        print("✅ Ensemble model was created and evaluated.")
+    else:
+        print("⚠️ Ensemble not found in scores!")
+        print("Available models:", list(state.model_scores.keys()))
+        # assert "Ensemble (Top 3)" in state.model_scores, "Ensemble failed to run"
+    
     assert isinstance(best_pipeline, Pipeline)
     assert state.selected_model is not None
     

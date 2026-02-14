@@ -7,11 +7,9 @@ from src.exceptions import InsufficientDataError, TargetConstantError, Excessive
 
 
 LEAKAGE_MAPPING = {
-    'revenue': ['profit', 'cost', 'margin', 'tax', 'total'],
-    'sales': ['profit', 'cost', 'margin', 'revenue'],
-    'profit': ['revenue', 'sales', 'cost', 'tax'],
-    'price': ['cost', 'discount'], 
-    'total': ['subtotal', 'tax']
+    'revenue': ['total_revenue', 'gross_profit', 'net_profit', 'profit_margin'],
+    'sales': ['total_sales', 'net_sales', 'revenue'],
+    'profit': ['revenue', 'ebitda', 'net_income'],
 }
 
 def suggest_target_column(df: pd.DataFrame) -> Optional[str]:
@@ -191,12 +189,13 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
     
     # scan for exact target match in the mapping keys
     suspicious_terms = []
+    # If target contains key (e.g. target='Total Revenue' contains 'revenue'), add suspicious terms
     for key, terms in LEAKAGE_MAPPING.items():
         if key in target_lower:
             suspicious_terms.extend(terms)
             
     if suspicious_terms:
-        # We have a relevant leakage context (e.g. target is 'revenue')
+        # We have a relevant leakage context
         cols_to_drop_semantic = []
         
         for col in df.columns:
@@ -204,40 +203,24 @@ def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, 
                 continue
                 
             col_lower = col.lower()
+            col_clean = col_lower.replace('_', '').replace(' ', '')
             
-            # check if the term is a distinct word in the column name (e.g. 'cost' in 'marketing_cost' is fine? Wait, user said 'exact matches'. 
-            # "We will soften the data_validator.py leakage checks to use exact matches so we don't accidentally drop valid inputs like marketing_cost."
-            # Interpretation: 'cost' should only match 'cost', or maybe 'total_cost' but NOT 'marketing_cost'? 
-            # Actually, "exact matches" usually means `col_lower == term`. 
-            # But let's assume they mean distinct tokens. 
-            # Let's use the USER's requested logic: "soften... to use exact matches".
-            
-            # If the user meant strictly `col == term`, that's too weak (e.g. 'total_revenue' vs 'revenue').
-            # Let's check if the forbidden term is a standalone word in the column name.
-            
-            if term == col_lower or f"_{term}" in col_lower or f"{term}_" in col_lower:
-                # This catches 'revenue', 'total_revenue', 'revenue_forecast', but avoids 'marketing_cost' if term is 'cost'??
-                # Wait, 'marketing_cost' ends with 'cost', so f"_{term}" matches.
-                # If they want to keep 'marketing_cost', they probably imply that context matters.
-                # Since I can't easily distinguish 'bad cost' from 'good cost' without more NLP,
-                # I will strictly follow "exact matches" as in "term appears as a word", BUT 
-                # maybe they meant strictly `if term == col_lower`. 
-                # Let's look at the example: "don't drop ... marketing_cost".
-                # If term is 'cost', 'marketing_cost' has 'cost'.
-                # To save 'marketing_cost', we strictly look for identical matches OR maybe just don't drop at all?
-                # User said: "soften... to use exact matches".
-                # I will interpret this as: ONLY drop if `col_lower == term`.
+            for term in suspicious_terms:
+                term_clean = term.replace('_', '').replace(' ', '')
                 
-                if col_lower == term:
-                     cols_to_drop_semantic.append(col)
-                     state.dropped_columns.append({
+                # STRICTER CHECK: Only drop if it's a derived/parent metric
+                # e.g. if target='revenue', drop 'total_revenue' (match) but NOT 'marketing_cost' (no match in new mapping)
+                if term_clean == col_clean:
+                    cols_to_drop_semantic.append(col)
+                    state.dropped_columns.append({
                         "col": col,
-                        "reason": f"Semantic Leakage (Exact Match: '{term}')"
+                        "reason": f"Semantic Leakage (Derived Metric: '{term}')"
                     })
-                     state.warnings.append(
-                        f"🧠 Semantic Drop: '{col}' removed due to suspicious context (Exact Match: '{term}')."
+                    state.warnings.append(
+                        f"🧠 Semantic Drop: '{col}' removed as it appears to be a derived form of {target_col}."
                     )
-                     break
+                    break
+
         
         if cols_to_drop_semantic:
             df = df.drop(columns=cols_to_drop_semantic)

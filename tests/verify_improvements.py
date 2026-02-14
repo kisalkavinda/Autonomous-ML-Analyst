@@ -17,12 +17,15 @@ from src.state import AnalysisState
 
 def test_semantic_leakage():
     print("\n--- Testing Semantic Leakage ---")
+    # Need > 30 samples to pass validation config default
     df = pd.DataFrame({
-        'Revenue': [100, 200, 300],
-        'Cost': [50, 100, 150], # Should NOT be dropped if we use exact matching "term == col_lower"
-        'Marketing_Cost': [10, 20, 30], # Should DEFINITELY NOT be dropped
-        'Total_Revenue': [100, 200, 300], # Should be dropped if strict match allows exact equality
-        'Profit': [50, 100, 150] # Target is Revenue, so Profit is allowed? Wait.
+        'Revenue': [100, 200, 300] * 10,
+        # Random data with duplicates (ID check requires < 100% unique)
+        'Cost': np.tile(np.random.rand(15), 2), 
+        'Marketing_Cost': np.tile(np.random.rand(15), 2),
+        'Total_Revenue': [100, 200, 300] * 10, # Exact match, should be dropped by Semantic
+        'Profit': np.tile(np.random.rand(15), 2), 
+        'SafeFeature': np.tile(np.random.rand(15), 2) # 50% unique, avoids ID drop 
     })
     
     config = AnalysisConfig()
@@ -39,17 +42,23 @@ def test_semantic_leakage():
         df_valid = validate_dataset(df, 'Revenue', config, state)
         print("Columns remaining:", df_valid.columns.tolist())
         
-        # 'Cost' matches 'cost'. Should be dropped.
+        # 'Cost' should be kept (not perfect match for 'revenue' leakage terms)
         if 'Cost' in df_valid.columns:
-            print("❌ 'Cost' was NOT dropped (Expected drop due to exact match with 'cost').")
+            print("✅ 'Cost' was correctly PRESERVED (Strict logic).")
         else:
-            print("✅ 'Cost' was correctly dropped.")
+            print("❌ 'Cost' was NOT preserved (Unexpected drop).")
             
         # 'Marketing_Cost' should be kept.
+        # 'Marketing_Cost' should be kept.
         if 'Marketing_Cost' in df_valid.columns:
-             print("✅ 'Marketing_Cost' was correctly PRESERVED.")
+             print("✅ 'Marketing_Cost' was correctly PRESERVED (Strict logic).")
         else:
-             print("❌ 'Marketing_Cost' was incorrectly dropped.")
+             print("❌ 'Marketing_Cost' was incorrectly dropped (Should be preserved as input).")
+             
+        if state.dropped_columns:
+            print("\nDropped Columns Logic:")
+            for item in state.dropped_columns:
+                print(f" - {item['col']}: {item['reason']}")
              
     except Exception as e:
         print(f"Validation failed: {e}")

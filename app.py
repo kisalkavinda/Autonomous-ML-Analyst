@@ -17,33 +17,54 @@ from src.utils import clean_dataset
 # Load environment variables
 load_dotenv()
 
-def validate_inference_data(inf_df, required_features, expected_dtypes):
-    """Validates new inference data against the training schema."""
+def validate_inference_data(inf_df, feature_columns, training_stats):
+    """
+    Validate inference data matches training expectations.
+    Checks: Missing columns, Data Types, Nulls, Value Ranges.
+    """
     issues = []
     
-    # Check for missing columns
-    missing_features = set(required_features) - set(inf_df.columns)
+    # 1. Check for missing columns
+    # (Already handled by alignment, but good to double check)
+    missing_features = set(feature_columns) - set(inf_df.columns)
     if missing_features:
-        issues.append(f"❌ Missing required features: {missing_features}")
-        return issues # Fatal error, stop here
-        
-    # Check data types and attempt safe casting
-    for col in required_features:
-        if col in inf_df.columns:
-            train_dtype = expected_dtypes[col]
-            try:
-                # Enforce the training datatype
-                if inf_df[col].dtype != train_dtype:
-                     inf_df[col] = inf_df[col].astype(train_dtype)
-            except ValueError:
-                issues.append(f"⚠️ Type mismatch: Cannot convert '{col}' to {train_dtype}. Check for invalid text in numeric columns.")
+        issues.append(f"❌ Missing required columns: {missing_features}")
+    
+    # 2. Check Data Types
+    if 'dtypes' in training_stats:
+        for col in feature_columns:
+            if col not in inf_df.columns: continue
             
-    # Check for nulls in aligned data
-    if not missing_features:
-        null_cols = inf_df[required_features].isnull().any()
-        if null_cols.any():
-            issues.append(f"⚠️ Null values detected in required features: {list(null_cols[null_cols].index)}. Imputer will handle this, but verify data integrity.")
+            train_dtype = training_stats['dtypes'].get(col)
+            # Simple check: numeric vs object
+            if train_dtype and pd.api.types.is_numeric_dtype(train_dtype):
+                if not pd.api.types.is_numeric_dtype(inf_df[col]):
+                    issues.append(f"⚠️ Type Mismatch: '{col}' should be numeric but is {inf_df[col].dtype}")
+
+    # 3. Check for Nulls
+    # Filter to only required columns
+    inf_subset = inf_df[[c for c in feature_columns if c in inf_df.columns]]
+    null_cols = inf_subset.isnull().any()
+    if null_cols.any():
+        issues.append(f"⚠️ Null values detected in: {list(null_cols[null_cols].index)}")
         
+    # 4. Check Value Ranges (Drift Detection)
+    if 'ranges' in training_stats:
+        for col in feature_columns:
+            if col in training_stats['ranges'] and col in inf_df.columns:
+                train_min, train_max = training_stats['ranges'][col]
+                if pd.api.types.is_numeric_dtype(inf_df[col]):
+                     inf_min, inf_max = inf_df[col].min(), inf_df[col].max()
+                     
+                     # Simple heuristics for "wildly out of range"
+                     # e.g. if new min is < 50% of old min (if positive) or > 200% of old max
+                     # This is just a warning, not a blocker
+                     if (train_min > 0 and inf_min < train_min * 0.5) or (inf_max > train_max * 2):
+                         issues.append(
+                            f"⚠️ Data Drift Warnings: '{col}' has unusual values "
+                            f"(Train: {train_min:.2f}-{train_max:.2f}, Inf: {inf_min:.2f}-{inf_max:.2f})"
+                        )
+    
     return issues
 
 # Page config
@@ -162,7 +183,7 @@ with tab_train:
                 status_container.write("🔧 Building preprocessing engine...")
                 
                 # 🚀 INJECT FEATURE ENGINEERING HERE
-                df_engineered = engineer_features(df_clean, target_col=target_col)
+                df_engineered = engineer_features(df_clean, target_col=target_col, state=state)
                 
                 preprocessor, X, y = build_preprocessor(df_engineered, target_col, state)
                 
@@ -176,8 +197,37 @@ with tab_train:
                 st.session_state["analysis_report"] = generate_markdown_report(state, target_col)
                 st.session_state["analysis_state"] = state
                 
+                # NEW: Save training stats for factory mode
+                # We need to capture the dtypes and ranges from the TRAINING data (X)
+                training_stats = {
+                    "dtypes": X.dtypes.to_dict(),
+                    "ranges": {
+                        col: (X[col].min(), X[col].max())
+                        for col in X.columns if pd.api.types.is_numeric_dtype(X[col])
+                    }
+                }
+                st.session_state["training_stats"] = training_stats
+                
                 # ==========================================
-                # 💾 FREEZE PIPELINE
+                # 💾 FREEZE PIPELINE (PERSISTENCE)
+                # ==========================================
+                from src.utils import save_model_package
+                try:
+                    model_path, meta_path = save_model_package(best_model, state)
+                    st.success(f"💾 Model Saved! ({model_path})")
+                    # Ideally provide download button here
+                    with open(model_path, "rb") as f:
+                         st.download_button("📥 Download Model (.pkl)", f, file_name=os.path.basename(model_path))
+                except Exception as e:
+                    st.warning(f"⚠️ Could not save model to disk: {e}")
+                
+                 
+                # Store results in session state
+                st.session_state["trained_pipeline"] = best_model
+                st.session_state["feature_columns"] = list(X.columns) # Use X columns (feature engineered)
+                st.session_state["target_column"] = target_col
+                st.session_state["model_ready"] = True
+                st.session_state["model_score"] = state.model_scores[state.selected_model]
                 # ==========================================
                 if best_model:
                     st.session_state["trained_pipeline"] = best_model
@@ -263,10 +313,9 @@ if st.session_state.get("model_ready", False):
 
                 # Feature Alignment
                 required_features = st.session_state["feature_columns"]
-                expected_dtypes = st.session_state.get("feature_dtypes", {})
-                
                 # Validate Schema
-                validation_issues = validate_inference_data(inf_df, required_features, expected_dtypes)
+                training_stats = st.session_state.get("training_stats", {})
+                validation_issues = validate_inference_data(inf_df, required_features, training_stats)
                 
                 if validation_issues:
                    for issue in validation_issues:
@@ -279,11 +328,40 @@ if st.session_state.get("model_ready", False):
                 if not any("❌" in issue for issue in validation_issues):
                     inf_df_aligned = inf_df[required_features]
                     pipeline = st.session_state["trained_pipeline"]
-                    predictions = pipeline.predict(inf_df_aligned)
-
-                    result_df = inf_df.copy()
-                    result_df["Predicted_" + st.session_state["target_column"]] = predictions
                     
+                    # Detect if regression (target stored in state?)
+                    # We can infere from pipeline model type
+                    from src.model_trainer import predict_with_confidence
+                    
+                    # Simple check: is classifier?
+                    is_classifier = hasattr(pipeline, 'classes_') or hasattr(pipeline.named_steps['model'], 'classes_')
+                    
+                    result_df = inf_df.copy()
+                    target_col = st.session_state.get("target_column", "Target")
+                    
+                    if not is_classifier:
+                        # Regression -> Try Confidence Intervals
+                        preds, lower, upper = predict_with_confidence(pipeline, inf_df_aligned)
+                        result_df[f"Predicted_{target_col}"] = preds
+                        
+                        # Only add intervals if they are different (meaning calculation succeeded)
+                        if not np.array_equal(lower, preds):
+                            result_df[f"{target_col}_Lower_95"] = lower
+                            result_df[f"{target_col}_Upper_95"] = upper
+                    else:
+                        # Classification
+                        predictions = pipeline.predict(inf_df_aligned)
+                        result_df[f"Predicted_{target_col}"] = predictions
+                        
+                        # Add Probability if available
+                        if hasattr(pipeline, "predict_proba"):
+                            try:
+                                probs = pipeline.predict_proba(inf_df_aligned)
+                                # Take max prob
+                                result_df["Confidence_Score"] = probs.max(axis=1)
+                            except:
+                                pass
+
                     with col_action:
                         st.markdown("### ✅ Ready!")
                         st.metric("Rows Processed", len(result_df))

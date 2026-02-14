@@ -1,8 +1,11 @@
+from src.preprocessing import detect_imbalance
 import pandas as pd
 import numpy as np
-from sklearn.pipeline import Pipeline
+from imblearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
+import shap
 from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, RandomForestClassifier, GradientBoostingClassifier, VotingRegressor, VotingClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import mean_absolute_error, f1_score, make_scorer
 from src.config import AnalysisConfig
@@ -34,9 +37,23 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
             'LinearRegression': LinearRegression()
         }
         metric_name = 'MAE'
-        # For cross_val_score, we need a scorer. neg_mean_absolute_error is standard (higher is better, so it's negative MAE)
-        # We will convert back to positive MAE for logging.
         scoring = 'neg_mean_absolute_error'
+        
+        param_distributions = {
+            'RandomForestRegressor': {
+                'model__n_estimators': [100, 200, 300, 500],
+                'model__max_depth': [10, 20, 30, None],
+                'model__min_samples_split': [2, 5, 10],
+                'model__min_samples_leaf': [1, 2, 4]
+            },
+            'GradientBoostingRegressor': {
+                'model__n_estimators': [100, 200, 300],
+                'model__learning_rate': [0.01, 0.05, 0.1, 0.2],
+                'model__max_depth': [3, 5, 7, 9],
+                'model__subsample': [0.8, 0.9, 1.0]
+            },
+            'LinearRegression': {}
+        }
     else:
         models = {
             'RandomForestClassifier': RandomForestClassifier(random_state=42),
@@ -45,35 +62,68 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
         }
         metric_name = 'F1-Macro'
         scoring = 'f1_macro'
+        
+        param_distributions = {
+            'RandomForestClassifier': {
+                'model__n_estimators': [100, 200, 300],
+                'model__max_depth': [10, 20, 30, None],
+                'model__min_samples_split': [2, 5, 10]
+            },
+            'GradientBoostingClassifier': {
+                'model__n_estimators': [100, 200],
+                'model__learning_rate': [0.01, 0.1, 0.2],
+                'model__max_depth': [3, 5, 7]
+            },
+            'LogisticRegression': {
+                'model__C': [0.1, 1.0, 10.0]
+            }
+        }
 
     best_score = -float('inf') if not is_regression else float('inf')
     best_model_name = None
     best_pipeline = None
+    
+    # Store all trained models for ensemble
+    trained_models = []
 
     # 3. Evaluation Strategy
     # Using RandomizedSearchCV for Autotuning
     
+    # 🚀 Check for Imbalance
+    needs_smote = detect_imbalance(y, is_regression)
+
     for name, model in models.items():
         # Define hyperparameter grid
-        if 'RandomForest' in name:
-            param_grid = {
-                'model__n_estimators': [50, 100, 200],
-                'model__max_depth': [5, 10, 20, None],
-                'model__min_samples_split': [2, 5, 10]
-            }
-        elif 'GradientBoosting' in name:
-            param_grid = {
-                'model__n_estimators': [50, 100, 200],
-                'model__learning_rate': [0.01, 0.1, 0.2],
-                'model__max_depth': [3, 5, 10]
-            }
-        elif 'LogisticRegression' in name or 'LinearRegression' in name:
-            param_grid = {} # Linear models have fewer knobs, key one is regularization (C, alpha) but keeping simple for now.
+        param_grid = param_distributions.get(name, {})
 
-        pipeline = Pipeline(steps=[
-            ('preprocessor', preprocessor),
-            ('model', model)
-        ])
+        # 🚀 Conditionally build pipeline steps
+        steps = [('preprocessor', preprocessor)]
+        
+        # Helper to set class_weight if applicable
+        def set_class_weight(mdl, weight):
+            if hasattr(mdl, 'class_weight'):
+                mdl.set_params(class_weight=weight)
+        
+        if needs_smote:
+            # Dynamic k_neighbors to prevent crashes on small datasets
+            min_class_samples = y.value_counts().min()
+            
+            # Strategy:
+            # 1. If very small (< 50 samples in minority), SMOTE is risky. Use class_weight='balanced'.
+            # 2. If larger, use SMOTE.
+            if min_class_samples < 50:
+                 # Too few samples for SMOTE, use class weights
+                 set_class_weight(model, 'balanced')
+                 # Also remove 'smote' if it was added? We haven't added it yet.
+                 # Logging? We might want to log this decision.
+            else:
+                # k_neighbors = min(5, max(1, min_class_samples - 2))
+                k_neighbors = min(5, max(1, min_class_samples - 2))
+                steps.append(('smote', SMOTE(random_state=42, k_neighbors=k_neighbors)))
+                
+        steps.append(('model', model))
+        
+        pipeline = Pipeline(steps)
         
         # 🚀 The Hyper-Tuner: Tests 5 random combinations of parameters
         # n_iter=5 to keep it fast for demo, can be increased.
@@ -87,10 +137,14 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
                 random_state=42,
                 n_jobs=-1        
             )
-            search.fit(X, y)
-            best_tuned_pipeline = search.best_estimator_
-            # best_score_ is mean cross-validated score of the best_estimator
-            score = search.best_score_
+            try:
+                search.fit(X, y)
+                best_tuned_pipeline = search.best_estimator_
+                # best_score_ is mean cross-validated score of the best_estimator
+                score = search.best_score_
+            except Exception as e:
+                print(f"Failed to fit {name}: {e}")
+                continue
         else:
             # Fallback for models without params defined
             cv_scores = cross_val_score(pipeline, X, y, cv=3, scoring=scoring)
@@ -110,6 +164,9 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
             state.model_scores[name] = {}
         state.model_scores[name][metric_name] = logged_score
         
+        # Store for ensemble
+        trained_models.append((name, best_tuned_pipeline, score))
+        
         # Determine if this is the new best
         if is_regression:
             # Lower MAE is better
@@ -124,7 +181,88 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
                 best_model_name = name
                 best_pipeline = best_tuned_pipeline
 
-    # 4. State Mutation
+
+
+    # 4. Ensemble Creation (Top 3 Models)
+    # Sort by score (descending because both neg_mae and f1 are higher=better)
+    trained_models.sort(key=lambda x: x[2], reverse=True)
+    
+    print(f"DEBUG: Trained models count: {len(trained_models)}")
+    
+    if len(trained_models) >= 2:
+        top_3 = trained_models[:3]
+        print(f"DEBUG: Top 3 models: {[m[0] for m in top_3]}")
+        estimators = [(name, pipeline.named_steps['model']) for name, pipeline, score in top_3]
+        
+        # Note: We need to handle the preprocessor. 
+        # VotingRegressor expects estimators. If we wrap them in pipelines, it works? 
+        # Yes, VotingEstimator can take Pipelines.
+        # But here we have the same preprocessor for all.
+        # Efficient way: Voting on the MODELS, inside a single Pipeline.
+        # BUT models might need different SMOTE/Preprocessing parameters if we tuned those? 
+        # We didn't tune preprocessor. So we can share it.
+        
+        try:
+            if is_regression:
+                ensemble = VotingRegressor(estimators=estimators)
+            else:
+                ensemble = VotingClassifier(estimators=estimators, voting='soft')
+                
+            # Create pipeline for ensemble
+            ensemble_pipeline = Pipeline(steps=[('preprocessor', preprocessor)])
+            # Add SMOTE if needed (must be consistent)
+            if needs_smote:
+                # Re-use the smote step from the best pipeline? 
+                # Or just create new one with same logic.
+                min_class_samples = y.value_counts().min()
+                if min_class_samples >= 6:
+                    k_neighbors = min(5, max(1, min_class_samples - 2))
+                    ensemble_pipeline.steps.append(('smote', SMOTE(random_state=42, k_neighbors=k_neighbors)))
+            
+            ensemble_pipeline.steps.append(('model', ensemble))
+            
+            # Evaluate Ensemble
+            # Note: VotingClassifier needs to be fitted. 
+            # We can't use the already-fitted estimators directly in sklearn < 1.0 easily in a Pipeline without re-fitting.
+            # So we will let cross_val_score fit it again.
+            
+            cv_scores = cross_val_score(ensemble_pipeline, X, y, cv=3, scoring=scoring)
+            ensemble_score = np.mean(cv_scores)
+            
+            # Log score
+            # Check if it beats the best single model
+            # For regression, we store NEGATIVE MAE in model_scores for consistency in "higher is better" sorting?
+            # Wait, earlier we did: state.model_scores[name][metric_name] = -score (if is_reg func)
+            # So logged_score for reg matches "lower is better" if we look at absolute value? 
+            # Actually, `best_score` was tracked as the raw score (negative MAE) or positive?
+            # Let's look at loop: if is_regression: logged_score = -score. if logged_score < best_score: best_score = logged_score.
+            # So best_score is POSITIVE MAE (lower is better).
+            
+            # Here ensemble_score is from cross_val_score(scoring='neg_mean_absolute_error').
+            # So ensemble_score is typically negative (e.g. -0.2).
+            
+            if is_regression:
+                 # logged_ae = -ensemble_score => Positive MAE
+                 ensemble_mae = -ensemble_score
+                 state.model_scores["Ensemble (Top 3)"] = {metric_name: ensemble_mae}
+                 
+                 if ensemble_mae < best_score:
+                     best_score = ensemble_mae
+                     best_model_name = "Ensemble (Top 3)"
+                     best_pipeline = ensemble_pipeline
+                     state.preprocessing_steps.append("🏆 Ensemble (Top 3) outperformed single models.")
+            else:
+                 state.model_scores["Ensemble (Top 3)"] = {metric_name: ensemble_score}
+                 if ensemble_score > best_score:
+                     best_score = ensemble_score
+                     best_model_name = "Ensemble (Top 3)"
+                     best_pipeline = ensemble_pipeline
+                     state.preprocessing_steps.append("🏆 Ensemble (Top 3) outperformed single models.")
+                
+        except Exception as e:
+            print(f"Ensemble failed: {e}")
+
+    # 5. State Mutation
     state.selected_model = best_model_name
 
     # 5. Final Fit
@@ -146,48 +284,67 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
     pass
     
     # ==========================================
-    # 🧠 XAI: FEATURE IMPORTANCE EXTRACTION
+    # 🧠 XAI: SHAP & FEATURE IMPORTANCE
     # ==========================================
     try:
-        # import numpy as np # Removed local import to avoid shadowing
-        pass
+        winning_model = best_pipeline.named_steps['model']
         
-        # 1. Isolate the two steps of your pipeline: Preprocessor and Model
-        preprocessor_step = best_pipeline.named_steps['preprocessor']
-        model_step = best_pipeline.steps[-1][1] 
+        # SHAP relies on the transformed data matrix (after preprocessing)
+        # Note: We transform X using the preprocessor step.
+        X_transformed = best_pipeline.named_steps['preprocessor'].transform(X)
         
-        # 2. Extract feature names post-transformation 
-        # (This handles the fact that One-Hot Encoding turns 1 column into many)
-        feature_names = preprocessor_step.get_feature_names_out()
-        
-        # 3. Extract raw weights based on the type of algorithm
-        importances = None
-        if hasattr(model_step, 'feature_importances_'):
-            # Tree-based models (Random Forest, Gradient Boosting) use feature_importances_
-            importances = model_step.feature_importances_
-        elif hasattr(model_step, 'coef_'):
-            # Linear models (Logistic/Linear Regression) use coefficients.
-            # We use absolute value (np.abs) because a massive negative coefficient 
-            # is just as important as a positive one!
-            coefs = model_step.coef_
-            if len(coefs.shape) > 1:  # Fix: Average across all classes for multi-class
-                importances = np.abs(coefs).mean(axis=0)  
-            else:
-                importances = np.abs(coefs)
-        
-        # 4. Map the names to the weights, sort them, and save the top 10
-        if importances is not None and len(feature_names) == len(importances):
-            # Zip the names and weights together, and sort them highest to lowest
-            feat_imp = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)[:10]
+        # Get feature names from preprocessor (works cleanly in scikit-learn >= 1.2)
+        try:
+            feature_names = best_pipeline.named_steps['preprocessor'].get_feature_names_out()
+        except:
+            feature_names = [f"Feature_{i}" for i in range(X_transformed.shape[1])]
             
-            # Clean up the names (Scikit-learn adds ugly prefixes like 'cat__' or 'num__')
-            clean_feat_imp = {k.split('__')[-1]: float(v) for k, v in feat_imp}
+        if hasattr(winning_model, 'estimators_'): # Tree-based models only (Random Forest, GBM)
+            # Use SHAP
+            explainer = shap.TreeExplainer(winning_model)
+            # Sampling for speed if dataset is huge? For now full data.
+            # TreeExplainer is fast.
+            shap_values = explainer.shap_values(X_transformed)
             
-            # Save it to the system's memory!
-            state.feature_importance = clean_feat_imp
+            # Handle SHAP shape differences between Binary/Multiclass/Regression
+            if isinstance(shap_values, list): # Older SHAP Binary/Multiclass or current Classifier
+                # Average across ALL classes dimensions (0 is typically class index in list)
+                # shap_values is a list of arrays [ (samples, features), (samples, features) ... ]
+                # We want mean absolute value across all classes and samples
+                
+                # Stack to (classes, samples, features)
+                shap_array = np.array(shap_values)
+                # Mean across classes (axis 0) then samples (axis 1)
+                importance = np.abs(shap_array).mean(axis=(0, 1))
+                
+            elif len(np.array(shap_values).shape) == 3: # Newer SHAP Multiclass (samples, features, classes)
+                # Mean across samples (0) and classes (2)
+                importance = np.abs(shap_values).mean(axis=(0, 2))
+            else: # Regression (samples, features)
+                importance = np.abs(shap_values).mean(axis=0)
+                
+            # Map values to feature names and sort
+            shap_dict = dict(zip(feature_names, importance))
+            # Save top 15 features
+            state.feature_importance = dict(sorted(shap_dict.items(), key=lambda item: item[1], reverse=True)[:10])
             
+        else:
+            # Fallback to Coefficient/Feature Importance if SHAP not applicable (Linear Models)
+            importances = None
+            if hasattr(winning_model, 'feature_importances_'):
+                 importances = winning_model.feature_importances_
+            elif hasattr(winning_model, 'coef_'):
+                coefs = winning_model.coef_
+                if len(coefs.shape) > 1:
+                    importances = np.abs(coefs).mean(axis=0)  
+                else:
+                    importances = np.abs(coefs)
+            
+            if importances is not None and len(feature_names) == len(importances):
+                feat_imp = sorted(zip(feature_names, importances), key=lambda x: x[1], reverse=True)[:10]
+                state.feature_importance = {k.split('__')[-1]: float(v) for k, v in feat_imp}
+
     except Exception as e:
-        # If extraction fails, log it silently. Never crash the main pipeline!
-        state.warnings.append(f"Could not extract feature importance: {str(e)}")
+        state.warnings.append(f"Could not extract feature importance/SHAP: {str(e)}")
 
     return best_pipeline
