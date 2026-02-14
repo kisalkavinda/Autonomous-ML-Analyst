@@ -127,6 +127,16 @@ Autonomous-ML-Analyst/
 
 ---
 
+### 6. Worker Mode (Factory) 🏭
+Once a model is trained, the **Factory** tab unlocks. This is your production inference engine.
+1.  **Switch to Factory**: Click the "Factory" tab (only visible after training).
+2.  **Upload Inference Data**: Upload a new CSV (must match training schema minus the target).
+3.  **Auto-Validation**: The system checks for missing columns, data types, and drift.
+4.  **Generate Predictions**: Click predictions to get a downloadable CSV with results.
+    *   *Includes confidence intervals for Regression tasks!*
+
+---
+
 ## 💻 Installation & Usage
 
 ### Prerequisites
