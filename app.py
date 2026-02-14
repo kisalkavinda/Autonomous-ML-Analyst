@@ -335,7 +335,8 @@ with tab_data:
             # 🛡️ ROW CAP (Cloud Safety)
             original_rows = len(df)
             if len(df) > MAX_TRAINING_ROWS:
-                st.warning(f"⚠️ Dataset has {original_rows:,} rows. Downsampling to {MAX_TRAINING_ROWS:,} for cloud training stability.")
+                pct_used = (MAX_TRAINING_ROWS / original_rows) * 100
+                st.warning(f"⚠️ Dataset has {original_rows:,} rows. Using {MAX_TRAINING_ROWS:,} samples ({pct_used:.1f}%) for cloud stability.")
                 df = df.sample(n=MAX_TRAINING_ROWS, random_state=42)
 
             st.success(f"✅ Loaded dataset with {df.shape[0]:,} rows and {df.shape[1]} columns.")
