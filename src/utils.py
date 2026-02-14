@@ -2,6 +2,26 @@ import pandas as pd
 import numpy as np
 
 
+def optimize_memory(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggressively reduces DataFrame memory footprint by downcasting numeric types.
+    float64 -> float32, int64 -> int32 (when safe).
+    Typically cuts memory usage by ~50%.
+    """
+    df_opt = df.copy()
+    
+    for col in df_opt.select_dtypes(include=['float64']).columns:
+        df_opt[col] = df_opt[col].astype('float32')
+    
+    for col in df_opt.select_dtypes(include=['int64']).columns:
+        col_min, col_max = df_opt[col].min(), df_opt[col].max()
+        # Only downcast if values fit safely in int32 range
+        if col_min >= np.iinfo(np.int32).min and col_max <= np.iinfo(np.int32).max:
+            df_opt[col] = df_opt[col].astype('int32')
+    
+    return df_opt
+
+
 def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
     """Auto-detects and cleans common data issues (Currencies & Dates)."""
     df_clean = df.copy()
