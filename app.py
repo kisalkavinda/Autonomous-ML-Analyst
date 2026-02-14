@@ -8,13 +8,43 @@ from src.config import AnalysisConfig
 from src.state import AnalysisState
 from src.exceptions import AnalysisError, InsufficientDataError, TargetConstantError, ExcessiveMissingDataError
 from src.data_validator import validate_dataset, suggest_target_column
-from src.preprocessing import build_preprocessor
+from src.preprocessing import build_preprocessor, engineer_features
 from src.model_trainer import run_experiment
 from src.report_generator import generate_markdown_report
-from src.utils import clean_chocolate_data
+from src.utils import clean_dataset
+
 
 # Load environment variables
 load_dotenv()
+
+def validate_inference_data(inf_df, required_features, expected_dtypes):
+    """Validates new inference data against the training schema."""
+    issues = []
+    
+    # Check for missing columns
+    missing_features = set(required_features) - set(inf_df.columns)
+    if missing_features:
+        issues.append(f"❌ Missing required features: {missing_features}")
+        return issues # Fatal error, stop here
+        
+    # Check data types and attempt safe casting
+    for col in required_features:
+        if col in inf_df.columns:
+            train_dtype = expected_dtypes[col]
+            try:
+                # Enforce the training datatype
+                if inf_df[col].dtype != train_dtype:
+                     inf_df[col] = inf_df[col].astype(train_dtype)
+            except ValueError:
+                issues.append(f"⚠️ Type mismatch: Cannot convert '{col}' to {train_dtype}. Check for invalid text in numeric columns.")
+            
+    # Check for nulls in aligned data
+    if not missing_features:
+        null_cols = inf_df[required_features].isnull().any()
+        if null_cols.any():
+            issues.append(f"⚠️ Null values detected in required features: {list(null_cols[null_cols].index)}. Imputer will handle this, but verify data integrity.")
+        
+    return issues
 
 # Page config
 st.set_page_config(page_title="Autonomous ML Analyst", layout="wide", page_icon="🤖")
@@ -90,7 +120,7 @@ with tab_data:
                 raw_df.columns = [f"Feature_{i}" for i in range(raw_df.shape[1])]
             
             # 🧹 CLEANING INTERCEPTOR
-            df = clean_chocolate_data(raw_df)
+            df = clean_dataset(raw_df)
 
             st.success(f"✅ Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns.")
             
@@ -130,7 +160,11 @@ with tab_train:
                 
                 # 2. Preprocessing
                 status_container.write("🔧 Building preprocessing engine...")
-                preprocessor, X, y = build_preprocessor(df_clean, target_col, state)
+                
+                # 🚀 INJECT FEATURE ENGINEERING HERE
+                df_engineered = engineer_features(df_clean, target_col=target_col)
+                
+                preprocessor, X, y = build_preprocessor(df_engineered, target_col, state)
                 
                 # 3. Model Training
                 status_container.write("🤖 Training candidate models (RandomForest, GradientBoosting, etc.)...")
@@ -148,6 +182,7 @@ with tab_train:
                 if best_model:
                     st.session_state["trained_pipeline"] = best_model
                     st.session_state["feature_columns"] = list(X.columns)
+                    st.session_state["feature_dtypes"] = X.dtypes.to_dict()
                     st.session_state["target_column"] = target_col
                     st.session_state["model_ready"] = True
                     st.balloons()
@@ -221,15 +256,27 @@ if st.session_state.get("model_ready", False):
                 raw_inf_df = pd.read_csv(inference_file)
                 
                 # 🧹 CLEANING INTERCEPTOR (Factory Mode)
-                inf_df = clean_chocolate_data(raw_inf_df)
+                inf_df = clean_dataset(raw_inf_df)
+
+                # 🚀 INJECT FEATURE ENGINEERING HERE
+                inf_df = engineer_features(inf_df)
 
                 # Feature Alignment
                 required_features = st.session_state["feature_columns"]
-                missing_features = set(required_features) - set(inf_df.columns)
-
-                if missing_features:
-                    st.error(f"❌ Missing required features: {missing_features}")
-                else:
+                expected_dtypes = st.session_state.get("feature_dtypes", {})
+                
+                # Validate Schema
+                validation_issues = validate_inference_data(inf_df, required_features, expected_dtypes)
+                
+                if validation_issues:
+                   for issue in validation_issues:
+                       if "❌" in issue:
+                           st.error(issue)
+                       else:
+                           st.warning(issue)
+                
+                # Proceed only if no fatal errors (missing features)
+                if not any("❌" in issue for issue in validation_issues):
                     inf_df_aligned = inf_df[required_features]
                     pipeline = st.session_state["trained_pipeline"]
                     predictions = pipeline.predict(inf_df_aligned)

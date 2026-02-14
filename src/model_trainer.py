@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, cross_val_score, RandomizedSearchCV
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import mean_absolute_error, f1_score, make_scorer
@@ -51,40 +51,60 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
     best_pipeline = None
 
     # 3. Evaluation Strategy
-    use_cv = len(X) < config.min_samples_for_split
+    # Using RandomizedSearchCV for Autotuning
     
     for name, model in models.items():
+        # Define hyperparameter grid
+        if 'RandomForest' in name:
+            param_grid = {
+                'model__n_estimators': [50, 100, 200],
+                'model__max_depth': [5, 10, 20, None],
+                'model__min_samples_split': [2, 5, 10]
+            }
+        elif 'GradientBoosting' in name:
+            param_grid = {
+                'model__n_estimators': [50, 100, 200],
+                'model__learning_rate': [0.01, 0.1, 0.2],
+                'model__max_depth': [3, 5, 10]
+            }
+        elif 'LogisticRegression' in name or 'LinearRegression' in name:
+            param_grid = {} # Linear models have fewer knobs, key one is regularization (C, alpha) but keeping simple for now.
+
         pipeline = Pipeline(steps=[
             ('preprocessor', preprocessor),
             ('model', model)
         ])
         
-        current_score = 0
-        
-        if use_cv:
-            # 5-fold CV
-            # scores are usually "higher is better" in sklearn cross_val_score
-            cv_scores = cross_val_score(pipeline, X, y, cv=5, scoring=scoring)
-            current_score = np.mean(cv_scores)
-            
-            # If regression, convert neg MAE to positive MAE for logging (and lower is better comparison)
-            if is_regression:
-                logged_score = -current_score 
-            else:
-                logged_score = current_score
+        # 🚀 The Hyper-Tuner: Tests 5 random combinations of parameters
+        # n_iter=5 to keep it fast for demo, can be increased.
+        if param_grid:
+            search = RandomizedSearchCV(
+                pipeline,
+                param_distributions=param_grid,
+                n_iter=5,       
+                cv=3,            # 3-fold cross validation
+                scoring=scoring,
+                random_state=42,
+                n_jobs=-1        
+            )
+            search.fit(X, y)
+            best_tuned_pipeline = search.best_estimator_
+            # best_score_ is mean cross-validated score of the best_estimator
+            score = search.best_score_
         else:
-            # Train/Test Split
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            pipeline.fit(X_train, y_train)
-            y_pred = pipeline.predict(X_test)
-            
-            if is_regression:
-                logged_score = mean_absolute_error(y_test, y_pred)
-                # For comparison logic internally, ensure we track "best". 
-                # If we decide "best_score" variable tracks the optimization metric (higher better vs lower better)
-            else:
-                logged_score = f1_score(y_test, y_pred, average='macro')
+            # Fallback for models without params defined
+            cv_scores = cross_val_score(pipeline, X, y, cv=3, scoring=scoring)
+            score = np.mean(cv_scores)
+            best_tuned_pipeline = pipeline
+            best_tuned_pipeline.fit(X, y)
 
+        
+        # Adjust score sign for regression (neg_mae -> mae)
+        if is_regression:
+            logged_score = -score
+        else:
+            logged_score = score
+            
         # Update State
         if name not in state.model_scores:
             state.model_scores[name] = {}
@@ -96,13 +116,13 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
             if logged_score < best_score:
                 best_score = logged_score
                 best_model_name = name
-                best_pipeline = pipeline
+                best_pipeline = best_tuned_pipeline
         else:
             # Higher F1 is better
             if logged_score > best_score:
                 best_score = logged_score
                 best_model_name = name
-                best_pipeline = pipeline
+                best_pipeline = best_tuned_pipeline
 
     # 4. State Mutation
     state.selected_model = best_model_name
@@ -116,14 +136,21 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
     
     # We need to retrieve the best model instance again to ensure a fresh fit?
     # Actually, reusing the pipeline object and calling fit(X, y) will re-train it.
-    # However,    # Fit the best model on the training data
-    best_pipeline.fit(X, y)
+    # However,    # 5. Final Fit
+    # Fit the best model on the training data
+    # Note: best_pipeline is already fitted from the search process.
+    # However, fit(X, y) might be safer to ensure it sees ALL data if CV was used?
+    # RandomizedSearchCV keeps the best estimator fitted on the whole X,y passed to fit() if refit=True (default).
+    # So we don't strictly need to refit. But let's leave it if users want to be sure.
+    # best_pipeline.fit(X, y) 
+    pass
     
     # ==========================================
     # 🧠 XAI: FEATURE IMPORTANCE EXTRACTION
     # ==========================================
     try:
-        import numpy as np
+        # import numpy as np # Removed local import to avoid shadowing
+        pass
         
         # 1. Isolate the two steps of your pipeline: Preprocessor and Model
         preprocessor_step = best_pipeline.named_steps['preprocessor']
@@ -143,7 +170,10 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
             # We use absolute value (np.abs) because a massive negative coefficient 
             # is just as important as a positive one!
             coefs = model_step.coef_
-            importances = np.abs(coefs[0]) if len(coefs.shape) > 1 else np.abs(coefs)
+            if len(coefs.shape) > 1:  # Fix: Average across all classes for multi-class
+                importances = np.abs(coefs).mean(axis=0)  
+            else:
+                importances = np.abs(coefs)
         
         # 4. Map the names to the weights, sort them, and save the top 10
         if importances is not None and len(feature_names) == len(importances):
