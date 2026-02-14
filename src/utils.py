@@ -33,3 +33,18 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
                     continue
                     
     return df_clean
+
+import joblib
+import os
+import json
+from datetime import datetime
+
+def save_model_package(pipeline, state, filepath="best_model.pkl"):
+    joblib.dump(pipeline, filepath)
+    meta_path = filepath.replace(".pkl", "_metadata.json")
+    with open(meta_path, "w") as f:
+        json.dump({
+            "model_name": state.selected_model,
+            "timestamp": datetime.now().isoformat()
+        }, f)
+    return filepath, meta_path

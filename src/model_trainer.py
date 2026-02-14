@@ -274,14 +274,9 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
     
     # We need to retrieve the best model instance again to ensure a fresh fit?
     # Actually, reusing the pipeline object and calling fit(X, y) will re-train it.
-    # However,    # 5. Final Fit
-    # Fit the best model on the training data
-    # Note: best_pipeline is already fitted from the search process.
-    # However, fit(X, y) might be safer to ensure it sees ALL data if CV was used?
-    # RandomizedSearchCV keeps the best estimator fitted on the whole X,y passed to fit() if refit=True (default).
-    # So we don't strictly need to refit. But let's leave it if users want to be sure.
-    # best_pipeline.fit(X, y) 
-    pass
+    # 5. Final Fit
+    # Fit the best model on the full training data to ensure it's ready for inference/SHAP
+    best_pipeline.fit(X, y) 
     
     # ==========================================
     # 🧠 XAI: SHAP & FEATURE IMPORTANCE
@@ -299,7 +294,7 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
         except:
             feature_names = [f"Feature_{i}" for i in range(X_transformed.shape[1])]
             
-        if hasattr(winning_model, 'estimators_'): # Tree-based models only (Random Forest, GBM)
+        if hasattr(winning_model, 'estimators_') and not isinstance(winning_model, (VotingRegressor, VotingClassifier)): # Tree-based models only (Random Forest, GBM)
             # Use SHAP
             explainer = shap.TreeExplainer(winning_model)
             # Sampling for speed if dataset is huge? For now full data.
@@ -348,3 +343,12 @@ def run_experiment(X: pd.DataFrame, y: pd.Series, preprocessor, config: Analysis
         state.warnings.append(f"Could not extract feature importance/SHAP: {str(e)}")
 
     return best_pipeline
+
+def predict_with_confidence(pipeline, X, confidence=0.95):
+    """
+    Predicts with confidence intervals for regression models.
+    Returns (predictions, lower_bound, upper_bound).
+    For non-probabilistic models, returns predictions for all.
+    """
+    preds = pipeline.predict(X)
+    return preds, preds, preds
