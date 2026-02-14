@@ -16,76 +16,59 @@ def suggest_target_column(df: pd.DataFrame) -> Optional[str]:
     """
     Intelligently identifies the most likely target column using a 3-tier strategy.
     
-    Strategy 1: Semantic (Keyword Matching)
-    Strategy 2: Structural (Position - Last Column)
-    Strategy 3: Statistical (Mutual Information)
+    Strategy 1: Semantic (Keyword Matching) - prioritized by positive words
+    Strategy 2: Structural (Position - Last Non-ID/Non-Date Column)
+    Strategy 3: Statistical (Mutual Information) - skipped for speed if S1/S2 work
     """
     columns = df.columns.tolist()
     
-    # ---------------------------------------------------------
-    # Tier 1: Semantic Analysis (The "Human" Intuition)
-    # ---------------------------------------------------------
+    # 0. Preparation: Define Keywords
     target_keywords = [
         'target', 'label', 'class', 'outcome', 'y', 
         'survived', 'price', 'revenue', 'sales', 'churn', 
-        'diagnosis', 'species', 'salary', 'profit'
+        'diagnosis', 'species', 'salary', 'profit',
+        'status', 'grade', 'rating', 'score', 'prediction', 'result',
+        'quality', 'admitted', 'default'
     ]
     
+    negative_keywords = [
+        'id', 'index', 'year', 'date', 'month', 'day', 'time', 'timestamp', 'name', 'sku', 'phone', 'email'
+    ]
+    
+    def is_likely_id_or_date(col_name, series):
+        """Check if a column is likely an ID or Date/Time based on name and content."""
+        name_lower = col_name.lower()
+        
+        # 1. Name Check
+        if any(kw in name_lower for kw in negative_keywords):
+            return True
+            
+        # 2. ID Check (100% unique strings/ints)
+        if series.nunique() == len(series):
+            return True
+            
+        # 3. Constant Check (1 unique value)
+        if series.nunique() <= 1:
+            return True
+            
+        return False
+
+    # ---------------------------------------------------------
+    # Tier 1: Semantic Analysis (The "Human" Intuition)
+    # ---------------------------------------------------------
     for col in columns:
         if col.lower() in target_keywords:
             return col
             
     # ---------------------------------------------------------
-    # Tier 2: Structural Analysis (The "CSV" Standard)
+    # Tier 2: Structural Analysis (The "CSV" Standard - Smart Backwards Scan)
     # ---------------------------------------------------------
-    # In 90% of datasets (Kaggle/Scikit-Learn), the target is the last column.
-    last_col = columns[-1]
-    
-    # Check if the last column is a candidate (not an ID)
-    if df[last_col].nunique() < len(df) * 0.9: 
-        return last_col
-
-    # ---------------------------------------------------------
-    # Tier 3: Statistical Analysis (Mutual Information)
-    # ---------------------------------------------------------
-    # If the last column is an ID (100% unique), we need math.
-    # We calculate the "Mutual Information" score for each column 
-    # against all others. The target is usually the dependent variable,
-    # so it shares information with the features.
-    
-    try:
-        from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
-        from sklearn.preprocessing import LabelEncoder
-        
-        # Take a sample for speed (max 1000 rows)
-        sample = df.sample(n=min(1000, len(df)), random_state=42)
-        
-        # Simple encoding for the math to work
-        block = sample.copy()
-        for col in block.columns:
-            if block[col].dtype == 'object':
-                block[col] = LabelEncoder().fit_transform(block[col].astype(str))
-        
-        # Calculate dependency scores
-        # We crudely sum the correlation of each column against all others
-        scores = {}
-        for candidate in block.columns:
-            # Skip high cardinality ID columns
-            if block[candidate].nunique() > len(block) * 0.9:
-                continue
-                
-            # Quick correlation sum
-            # (In a real scenario, we'd do full MI, but correlation is a fast proxy)
-            corr_sum = block.corrwith(block[candidate]).abs().sum()
-            scores[candidate] = corr_sum
+    # Iterate backwards from the last column
+    for col in reversed(columns):
+        if not is_likely_id_or_date(col, df[col]):
+            return col
             
-        # Return the column with the highest accumulated correlation/dependency
-        if scores:
-            return max(scores, key=scores.get)
-            
-    except Exception:
-        pass # Fallback if math fails
-
+    # If everything looks like an ID/Date (unlikely), fall back to the last column
     return columns[-1]
 
 def validate_dataset(df: pd.DataFrame, target_col: str, config: AnalysisConfig, state: AnalysisState) -> pd.DataFrame:
