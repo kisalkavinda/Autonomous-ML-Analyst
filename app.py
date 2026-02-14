@@ -80,17 +80,17 @@ st.markdown("""
         height: 3.2em;
         font-weight: 600;
         background-color: transparent;
-        border: 1px solid #8b5cf6;
+        border: 1px solid #3b82f6;
         color: #f8fafc;
         transition: all 0.3s ease;
-        box-shadow: 0 0 10px rgba(139, 92, 246, 0.1);
+        box-shadow: 0 0 10px rgba(59, 130, 246, 0.1);
     }
     
     .stButton>button:hover {
-        background-color: #8b5cf6;
+        background-color: #3b82f6;
         color: #ffffff;
-        border: 1px solid #a78bfa;
-        box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+        border: 1px solid #60a5fa;
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
         transform: translateY(-2px);
     }
 
@@ -111,7 +111,7 @@ st.markdown("""
     /* Custom Gradient Main Header */
     .main-header {
         font-size: 3rem;
-        background: -webkit-linear-gradient(45deg, #a78bfa, #8b5cf6);
+        background: -webkit-linear-gradient(45deg, #60a5fa, #3b82f6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
