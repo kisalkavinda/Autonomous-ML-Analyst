@@ -217,10 +217,11 @@ st.markdown("""
     .stButton>button {
         width: 100%;
         border-radius: 6px;
-        height: 3.2em;
-        font-weight: 600;
+        height: 3.8em; /* Increased from 3.2em */
+        font-size: 1.2rem; /* Added font size */
+        font-weight: 700;
         background-color: transparent;
-        border: 1px solid #3b82f6;
+        border: 2px solid #3b82f6; /* Thicker border */
         color: #f8fafc;
         transition: all 0.3s ease;
         box-shadow: 0 0 10px rgba(59, 130, 246, 0.1);
@@ -229,7 +230,7 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #3b82f6;
         color: #ffffff;
-        border: 1px solid #60a5fa;
+        border: 2px solid #60a5fa;
         box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
         transform: translateY(-2px);
     }
@@ -242,31 +243,37 @@ st.markdown("""
         box-shadow: 0 4px 15px -1px rgba(0, 0, 0, 0.5);
     }
     
-    /* Input Boxes (File Uploader, Select Box) */
-    .stSelectbox>div>div, .stFileUploader>div>div {
+    /* Input Boxes (File Uploader, Select Box) - Larger Text */
+    .stSelectbox>div>div, .stFileUploader>div>div, .stTextInput>div>div {
         background-color: #1e293b !important;
         border-radius: 6px;
+        font-size: 1.1rem;
+    }
+    
+    /* General Markdown Text */
+    div.stMarkdown > div {
+        font-size: 1.1rem;
     }
 
     /* Custom Gradient Main Header */
     .main-header {
-        font-size: 3rem;
+        font-size: 4rem; /* Increased from 3rem */
         background: -webkit-linear-gradient(45deg, #60a5fa, #3b82f6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
         font-weight: 800;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.5rem;
         letter-spacing: -1px;
     }
     
     /* Sub Header */
     .sub-header {
-        font-size: 1.2rem;
+        font-size: 1.5rem; /* Increased from 1.2rem */
         color: #94a3b8;
         text-align: center;
         margin-bottom: 3rem;
-        font-weight: 400;
+        font-weight: 500;
     }
     
     /* Hide Streamlit Branding */
