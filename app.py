@@ -73,24 +73,65 @@ st.set_page_config(page_title="Autonomous ML Analyst", layout="wide", page_icon=
 # Custom CSS for polished look
 st.markdown("""
 <style>
+    /* Button Styling with Neon Glow */
     .stButton>button {
         width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        font-weight: bold;
+        border-radius: 6px;
+        height: 3.2em;
+        font-weight: 600;
+        background-color: transparent;
+        border: 1px solid #8b5cf6;
+        color: #f8fafc;
+        transition: all 0.3s ease;
+        box-shadow: 0 0 10px rgba(139, 92, 246, 0.1);
     }
+    
+    .stButton>button:hover {
+        background-color: #8b5cf6;
+        color: #ffffff;
+        border: 1px solid #a78bfa;
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+        transform: translateY(-2px);
+    }
+
+    /* Container Borders & Shadows */
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {
+        border-color: #1e293b !important;
+        border-radius: 10px !important;
+        background-color: #0f172a !important;
+        box-shadow: 0 4px 15px -1px rgba(0, 0, 0, 0.5);
+    }
+    
+    /* Input Boxes (File Uploader, Select Box) */
+    .stSelectbox>div>div, .stFileUploader>div>div {
+        background-color: #1e293b !important;
+        border-radius: 6px;
+    }
+
+    /* Custom Gradient Main Header */
     .main-header {
-        font-size: 2.5rem;
-        color: #4B4B4B;
+        font-size: 3rem;
+        background: -webkit-linear-gradient(45deg, #a78bfa, #8b5cf6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         text-align: center;
-        font-weight: 700;
+        font-weight: 800;
+        margin-bottom: 0.2rem;
+        letter-spacing: -1px;
     }
+    
+    /* Sub Header */
     .sub-header {
-        font-size: 1.5rem;
-        color: #6C757D;
+        font-size: 1.2rem;
+        color: #94a3b8;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 3rem;
+        font-weight: 400;
     }
+    
+    /* Hide Streamlit Branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
